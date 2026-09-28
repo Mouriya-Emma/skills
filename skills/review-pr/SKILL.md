@@ -50,7 +50,7 @@ Gate 1–5 决定 open PR 是否可批准，按序检查，首个失败即停。
 
 ## OMP 执行层
 
-使用当前 `task` 工具的 `unrestricted` 子代理执行只读代码审查。按全局能力档位配置使用最强档，不使用禁用的 bundled `reviewer` 或省略 agent 字段后落到默认 `task`。不依赖旧插件 slash command，也不因磁盘上有插件文件就声称它在 OMP 可调用。
+使用当前 `task` 工具的 `task:mid` 子代理执行只读代码审查。按全局能力档位配置使用最强档，不使用禁用的 bundled `reviewer` 或省略 agent 字段后落到默认 `task`。不依赖旧插件 slash command，也不因磁盘上有插件文件就声称它在 OMP 可调用。
 
 交给执行者的任务应包含：
 
