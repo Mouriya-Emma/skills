@@ -1,11 +1,11 @@
 ---
 name: writing-issue
-description: 起草或修订单个 GitHub issue，定义结果验收、spike 和 parent 归属；相关 issue 树转 writing-complex-issues。
+description: 起草或修订单个 GitHub issue，定义结果验收和 parent 归属，写作期当场收口遗漏、不留未决项；相关 issue 树转 writing-complex-issues。
 ---
 
 # writing-issue
 
-本 skill 管单个 issue 的问题与原因、责任定位、必要决策、结果契约和归属。两个及以上相关 issue 用 `skill://writing-complex-issues` 组织成树；PR 实现说明与证据用 `skill://writing-pr`，关闭裁决用 `skill://review-pr`。
+本 skill 管单个 issue 的问题与原因、责任定位、必要决策、结果契约和归属。发布的 issue 不含未决问题或等待结论的阻塞项：写作中发现的遗漏按 [decision-closure](../writing-complex-issues/references/decision-closure.md) 当场收口——取得事实，或与 subagent 讨论后裁决。两个及以上相关 issue 用 `skill://writing-complex-issues` 组织成树；PR 实现说明与证据用 `skill://writing-pr`，关闭裁决用 `skill://review-pr`。
 
 ## 先取得事实
 
@@ -18,15 +18,15 @@ description: 起草或修订单个 GitHub issue，定义结果验收、spike 和
 
 **原子性：** 一段连贯 Why 能论证整个 issue；若自然裂成几个独立问题，就拆 children，由 umbrella 说明共同 driver，树内 children 按 [writing-complex-issues](../writing-complex-issues/SKILL.md)「切分轴」沿实现责任切分，不按功能切。不要按版本、批次、repo、时间窗或标题关键词机械分组，归属要读实际 body 后判断。标题和正文不放草稿 ID、agent ID、working-group 名或临时源树路径；关联项用标题或真实链接。
 
-**问题写到原因：** 先写可观察症状与影响，再写原因：哪个责任单元的哪项状态/规则、哪条不变量或缺失的能力产生了症状，附文件 + 符号 + 当前行为的概念锚点。已证实的原因带证据。未证实且会决定修法的原因，先开 spike 查明并 Blocks 实现 issue；不影响修法的，标为假设并写判定路径与负责方。多个症状同根时写根及其覆盖面。新功能没有被违反的不变量，写现有责任单元缺什么能力，不编造违约。原因不是改法：写「值在 Y 处未经 parse 跨域」，不写「在 Y 加校验函数」。
+**问题写到原因：** 先写可观察症状与影响，再写原因：哪个责任单元的哪项状态/规则、哪条不变量或缺失的能力产生了症状，附文件 + 符号 + 当前行为的概念锚点。原因在写作期查证并带证据：派 subagent 读代码、复现、查日志或跑实验，不开前置调查 issue Blocks 实现，也不把未证实原因标成假设留给实现者。不影响修法的旁支原因不写。多个症状同根时写根及其覆盖面。新功能没有被违反的不变量，写现有责任单元缺什么能力，不编造违约。原因不是改法：写「值在 Y 处未经 parse 跨域」，不写「在 Y 加校验函数」。
 
-**责任定位：** 写明问题落在哪个现有责任单元；它维护相关状态/规则（owner，核心）还是只消费既定契约（外围）；哪些调用方或消费者受影响、是否需同步迁移。状态的 owner 在别的单元、repo 或外部系统时，issue 向 owner 提请求或依赖它，不在消费侧另立副本。目标边界尚待裁决时区分「现有单元」与「待定边界」，不预选最终模块。纯文档、文案等不涉及共享状态的改动，写一行责任单元即可，不为填段编写 owner 分析。
+**责任定位：** 写明问题落在哪个现有责任单元；它维护相关状态/规则（owner，核心）还是只消费既定契约（外围）；哪些调用方或消费者受影响、是否需同步迁移。状态的 owner 在别的单元、repo 或外部系统时，issue 向 owner 提请求或依赖它，不在消费侧另立副本。跨单元的目标边界属于必要决策，写作期裁决；单元内模块划分留给 PR，不预选。纯文档、文案等不涉及共享状态的改动，写一行责任单元即可，不为填段编写 owner 分析。
 
-**方案边界：** 按 [decision-closure](../writing-complex-issues/references/decision-closure.md) 的 a/b 判据：会改变操作员观察结果、或迫使另一实现单元同步改变的分叉（权威归属、状态空间、错误分类、接口语义），在 issue 裁决并写入「责任与必要决策」，只钉协作所需的最小语义；单元内部组织、算法、私有命名、模块划分留给 PR。裁决先查代码现状与项目既有惯例，手头事实与全局求解能可靠判定的当场定并写依据，不以「源未说明」列成未定义；只有需实验、运行数据才能判定的写未知与判定路径；业务动机、商业约束等操作员独有事实缺失时回传，或写明按什么假设推进。树内 child 不自行裁决跨单元契约：继承树根已裁决条款并逐字快照，缺失或冲突走树根设计修正。源要求的外部契约照写；`iac:deploy` 按 `skill://iac-auto-deploy-issue` 写已决定的部署契约、目标 repo、artifact 和 live 验证。
+**方案边界：** 按 [decision-closure](../writing-complex-issues/references/decision-closure.md) 的 a/b 判据：会改变操作员观察结果、或迫使另一实现单元同步改变的分叉（权威归属、状态空间、错误分类、接口语义），在 issue 裁决并写入「责任与必要决策」，只钉协作所需的最小语义；单元内部组织、算法、私有命名、模块划分留给 PR。裁决先查代码现状与项目既有惯例，不以「源未说明」列成未定义；缺事实就在写作期取得，设计分叉与 subagent 讨论后当场裁决并写依据与被否方案；操作员独有事实（业务动机、商业约束）缺失且会改变目标时，写作期直接问操作员。按 decision-closure 处置外部 owner 状态与只能实现后观察的结果。树内 child 不自行裁决跨单元契约：继承树根已裁决条款并逐字快照，写作中发现缺失或冲突当场回到树根裁决，发布后才暴露的走树根设计修正。源要求的外部契约照写；`iac:deploy` 按 `skill://iac-auto-deploy-issue` 写已决定的部署契约、目标 repo、artifact 和 live 验证。
 
 **结果从原因推出：** 预期结果写问题消失后可观察的性质，按真实风险追问：哪些性质要成立、哪些已有性质不能变、相关的拒绝输入或非法转移如何处理、生命周期终点和适用边界在哪。只写本次确有的项，不为填表罗列不相关边界。
 
-**未知：** 未文档化第三方行为、跨环境可行性等高风险假设先 spike，并 Blocks 实现。环境暂不可用的验证必须有具名下游 owner，写入继承验证义务；继承义务不可二次延期。
+**未知：** 未文档化第三方行为、跨环境可行性等高风险假设在写作期验证，结论带证据写入。只能在实现后观察的已定方案结果写成 `assumption` 验收行，不预写失败备选方案。环境暂不可用的验证必须有具名下游 owner，写入继承验证义务；继承义务不可二次延期。
 
 ### checkpoint 写法
 
@@ -59,13 +59,13 @@ checkpoint 验结果和被拒的无效行为，不用它强制个人实现偏好
 
 ## 问题
 
-<症状与影响；原因（责任单元、状态/规则、不变量或能力缺口）及证据，未证实的标假设与判定路径；Why 与来源。不写代码改法。>
+<症状与影响；原因（责任单元、状态/规则、不变量或能力缺口）及写作期查证的证据；Why 与来源。不写代码改法。>
 
 ## 责任与必要决策
 
 - **责任单元**: <现有单元；owner（核心）或消费者（外围）>
 - **受影响方**: <调用方/消费者及是否同步迁移>
-- **决策**: <已裁决的跨单元或目标级决策及依据；未决项与判定路径。无则写「无」>
+- **决策**: <已裁决的跨单元或目标级决策、依据与被否方案。无则写「无」>
 
 ## 预期结果
 
@@ -92,44 +92,11 @@ checkpoint 验结果和被拒的无效行为，不用它强制个人实现偏好
 
 ## 依赖关系
 
-- Depends on: <issue 链接>（<需要的上游后置条件>）
+- Depends on: <issue 链接>（<需要的上游已交付后置条件，不是待产出的结论>）
 - Blocks: <issue 链接>（<谁需要本结果>）
 ```
 
 umbrella child 的继承快照、使用场景、baseline、不应残留等扩展按 [child-body.md](../writing-complex-issues/references/child-body.md)，不另设一套 child 模板。
-
-### spike issue
-
-```markdown
-# Spike: <验证的一个假设>
-
-## 目标
-
-Verify assumption: <具体 claim>
-
-## 上下文
-
-- **Repo / Design source / Assumption source**: <原文与可核实来源>
-
-## 验证步骤
-
-1. <具体可执行步骤。>
-
-## 验收标准
-
-| # | Dimension | Check | Command | Env | Expect |
-|---|-----------|-------|---------|-----|--------|
-| 1 | assumption | <验证什么> | `<命令>` | <目标环境> | <期望读数> |
-
-## 结果分支
-
-- **If passed**: 进入 <实现 issue 链接>。
-- **If failed**: 带证据开 design-question，不进入实现。
-
-## 依赖关系
-
-- Blocks: <依赖该假设的实现 issue 链接>
-```
 
 ### retroactive umbrella
 
@@ -140,7 +107,7 @@ Verify assumption: <具体 claim>
 1. 按 driver 选 home repo：IaC 驱动归 IaC repo，app 驱动归 app repo；CICD onboarding parent 在应用 repo。
 2. 先定 parent。通过完整本地 payload 确认已有 parent 仍合适；新层级先建 parent 再建 child。一个 child 一个 issue parent，另一条线用散文引用。跨 repo（同 org）可连接，无需复制任务。
 3. API 操作及失败恢复见 [sub-issue-api.md](references/sub-issue-api.md)。PR 只用 closing keyword 连接 issue，不参与 sub-issue 边。
-4. 发布前检查：原子 Why 与来源、症状到原因的证据链（未证实项标假设）、责任定位与必要决策、具体业务输入、外部约束与继承契约、逐条结果覆盖、范围边界、可跑命令和真实风险维度、延期 owner、对抗捷径，以及 repo/preset 必需段。起草中的 Source bundle 和内部脚手架不落 GitHub。
+4. 发布前检查：原子 Why 与来源、症状到原因的证据链、责任定位与必要决策、无未决项或指向未来结论的依赖、具体业务输入、外部约束与继承契约、逐条结果覆盖、范围边界、可跑命令和真实风险维度、延期验证 owner、对抗捷径，以及 repo/preset 必需段。起草中的 Source bundle 和内部脚手架不落 GitHub。
 5. 活跃 issue（包括 umbrella 和原子 child）的错误引用、作废前提、错误范围或过时铺垫直接替换；裁决、范围扩展、设计演进以 comment 留迭代记录。树内同时核对引用锚和活跃 child 的继承快照，按 [comment-layers.md](../writing-complex-issues/references/comment-layers.md) 保持当前任务与决策记录一致；已落地记录遵守全局不可变边界。
 
 历史验收失败案例仅在需要理解反例时读 [acceptance-cases.md](references/acceptance-cases.md)。
