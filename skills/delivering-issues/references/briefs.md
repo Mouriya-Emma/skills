@@ -26,7 +26,7 @@
 
 ```markdown
 # 目标
-只交付 <issue 链接>（清单第 <k> 项<，属于 <parent 链接>>）。目标 repo <owner/repo>，起点 <默认分支> <SHA>，在你自己的工作目录里从远端建 branch。<沿用 PR 时：沿用 <PR 链接> / <branch>。><他人 PR 时：<PR 链接> 属于他人，不改动其 branch，只作参考；你另开 PR。>
+只交付 <issue 链接>（清单第 <k> 项<，属于 <parent 链接>>）。目标 repo <owner/repo>，起点 <默认分支> <SHA>，在你自己的工作目录里从远端建 branch。<沿用 PR 时：沿用 <PR 链接> / <branch>。><存在本任务无权维护的 PR 时：<PR 链接> 不改动其 branch，只作参考；你另开 PR。>
 不做清单中的其他 issue。
 
 # 分工
