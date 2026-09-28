@@ -33,4 +33,4 @@ npx skills update km-stack --global     # 更新指定的全局 skill
 npx skills remove km-stack --global     # 移除指定的全局 skill
 ```
 
-项目级 skill 去掉 `--global`。修改本仓库的 skill 后，先合入源码，再针对受影响的 skill 执行更新或重新安装，并检查已安装内容；不要用全量更新代替选择和核对变更。
+项目级 skill 去掉 `--global`。修改本仓库的 skill 后，先把源码提交并推送到 `main`，再针对受影响的 skill 执行更新或重新安装，并检查已安装内容；不要用全量更新代替选择和核对变更。
