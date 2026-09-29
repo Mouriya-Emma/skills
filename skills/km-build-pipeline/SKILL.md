@@ -17,7 +17,7 @@ km -p "$core" ls builds -f json
 km -p "$core" ls repos -f json
 ```
 
-Inspect the chosen resource's full configuration in Komodo: source repo/branch, builder or Server, commands, artifact/image destination, credentials path and downstream triggers. If the inventory is empty or the project already builds through GitHub Actions on GARM/vctcn-runner, use `skill://local-cicd`. Do not create a parallel Komodo pipeline merely because this skill was selected.
+Inspect the chosen resource's full configuration in Komodo: source repo/branch, builder or Server, commands, artifact/image destination, credentials path and downstream triggers. If the inventory is empty or the project already builds through GitHub Actions on GARM-managed runners (resident LXD on VM 181 or edge Incus overflow on the operator's laptop), use `skill://local-cicd`. Do not create a parallel Komodo pipeline merely because this skill was selected.
 
 Durable config changes belong to the resource's declaration owner. Resolve it before changing branches/commands; an ad hoc `km update build` is not a substitute for its repo/IaC workflow. Build or Repo commands may deploy or mutate external systems, so inspect their actual effects and authorization before running.
 

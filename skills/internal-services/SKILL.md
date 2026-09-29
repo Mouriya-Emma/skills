@@ -43,7 +43,7 @@ For a repo-backed Stack, the `repo`/`branch` fields identify its authority. Work
 Read current workspaces rather than a stored count:
 
 - VM 180 `vctcn-app1`: primary Keycloak, Forgejo, and any other compose services currently declared in its workspace.
-- VM 181 `vctcn-runner`: GARM/self-hosted runner control and worker host.
+- VM 181 `vctcn-runner`: GARM controller and resident LXD runner host. Overflow runners run as edge Incus instances on the operator's laptop (outside the IaC-managed hosts); count GARM once and do not count the laptop as a service host.
 - VM 182 `vctcn-registry`: registry plus its auth helper (count the registry once).
 - Manual CT 171 NPM is supporting public-ingress infrastructure; mention it but do not count it as an app unless the requested granularity includes control-plane services.
 
