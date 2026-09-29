@@ -137,6 +137,6 @@ body 一律中文，遵循 `writing-issue`。按下列顺序用这些 section，
 
 - **版本升级 / 插件安装**：强调 release tag、checksum/artifact、既有 workspace、apply 边界、live plugin/API 探测。
 - **新服务**：强调 source artifact/image、监听口、health check、持久化、按用途列的 secrets、入站调用方、暴露 class、registry/Komodo/NPM/DNS 归谁。
-- **GARM/registry 接线**：强调 repo/pool label、artifact workflow、registry secret sync、runner 网络证明、哪些 state 是 runtime GARM 而非 IaC。
+- **GARM/registry 接线**：强调 repo 的常驻与边缘两个同标签 pool、`pack` 与 priority（做法见 `pve-vctcn/apps/runner/README.md`）、artifact workflow、写共享状态 job 的 concurrency 组、registry secret sync、哪些 state 是 runtime GARM 而非 IaC。runner 网络证明要分别覆盖常驻（VM 181 LXD）与边缘（笔记本 Incus）两种执行位置，不能用一侧的 smoke 代表另一侧。
 - **webhook/daemon 路径**：强调 endpoint path、GitHub event 契约、label/filter 语义、内部 NetBird 调用方/被调方、daemon handoff、日志、端到端 webhook smoke。
 

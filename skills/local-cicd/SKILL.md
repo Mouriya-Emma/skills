@@ -1,6 +1,6 @@
 ---
 name: local-cicd
-description: Choose and implement self-hosted delivery through GARM/LXD, private registry, app-level deploy, release artifact consumption, or Komodo ResourceSync. Covers pool onboarding, mesh-aware CI, artifact authority, secrets sync, and evidence by delivery type.
+description: Choose and implement self-hosted delivery through GARM (resident LXD on VM 181 plus edge Incus overflow), private registry, app-level deploy, release artifact consumption, or Komodo ResourceSync. Covers pool onboarding, mesh-aware CI, concurrency for shared delivery state, artifact authority, secrets sync, and evidence by delivery type.
 ---
 
 # local-cicd: self-hosted CI/CD 体系
@@ -11,16 +11,12 @@ description: Choose and implement self-hosted delivery through GARM/LXD, private
 
 Before asserting current state, verify from live/current sources:
 
-1. **Live GARM sqlite on VM 181** — repo/pool truth. The in-container `garm-cli` has no login context configured (`please log into a garm installation first`), so read the DB directly and read-only; do not `garm-cli init`/log in merely to inspect:
+1. **Live GARM on VM 181** — repo/pool truth lives in GARM sqlite; read it through the host CLI, whose root profile is restored from SOPS by `pve-vctcn/apps/runner/scripts/login-garm-admin.sh` (see the runner README "GARM administration"):
    ```sh
-   ssh root@vctcn-runner.mouriya.lan python3 - <<'PY'
-   import sqlite3
-   db = sqlite3.connect('file:/etc/garm/garm.db?mode=ro', uri=True)
-   for t in ('repositories', 'pools'):
-       print(t, [r[1] for r in db.execute(f'PRAGMA table_info({t})')])
-   PY
+   ssh root@vctcn-runner.mouriya.lan '/usr/local/bin/garm-cli pool ls --format json'
+   ssh root@vctcn-runner.mouriya.lan '/usr/local/bin/garm-cli repository ls --format json'
    ```
-   then select the needed columns (and pool tags) the same way.
+   Never print `garm-cli profile list --format json` (it contains the token).
 2. **Runner/IaC docs** — `/Users/mouriya/Ext/code/pve-vctcn/apps/runner/README.md` and `/Users/mouriya/Ext/code/pve-vctcn/apps/registry/README.md`.
 3. **Consumer repo latest default branch** — fetch/pull latest default branch or inspect `origin/<default>` if the working tree is dirty.
 4. **Owning IaC repo** — for placement and install/deploy truth: `homelab-tf` or `pve-vctcn` current docs/state/submodules.
@@ -32,7 +28,7 @@ Static lists in this skill are examples/patterns. Treat live GARM + current repo
 | Stage | Authority |
 |---|---|
 | Source repo | App/plugin/sync code, workflow YAML, artifact naming, app-level deploy trigger. |
-| Runner seam | VM 181 `vctcn-runner` GARM + `garm-provider-lxd`; per-job LXD runners; host NetBird peer at `vctcn-runner.mouriya.lan`; pool state in GARM sqlite, not TF. |
+| Runner seam | One GARM controller on VM 181 `vctcn-runner`, pool state in GARM sqlite (not TF). Each onboarded repo has a resident `lxd_local` pool (LXD on VM 181, mesh via VM 181's NetBird peer) and an edge `incus_edge` pool (Incus on the operator's laptop, mesh via the laptop's peer) with identical labels; the edge takes a job only when the resident pool is full. See `pve-vctcn/apps/runner/README.md`. |
 | Private registry | VM 182 `vctcn-registry`, `registry.237575.xyz`, Keycloak `registry` realm, `sa-registry`; maintained by `pve-vctcn/apps/registry`. |
 | Homelab deploy | `homelab-tf` owns Core/Periphery, ResourceSync provisioning, VMs/CTs, DNS/mesh/storage; workload repos own repo-backed Stack contents and secrets. |
 | vctcn deploy/edge | VM 180 Keycloak/Forgejo, VM 181 runner, VM 182 registry, NPM/DNS/edge under `pve-vctcn`. |
@@ -76,8 +72,9 @@ Implementation expectations:
   explicit dependency), not race a parallel release job on the same tag.
 - Keep compilation and packaging separate: the compiler produces the artifact;
   the runtime Dockerfile copies it and installs only runtime dependencies.
-- Runner: `runs-on: [self-hosted, linux, vctcn]` plus `netbird` / `vctcn-runner` / `x64` only when the live pool labels require or clarify capability.
-- Pool: Docker build/push jobs need `flavor=docker` and VM181 helper-generated `extra_specs`.
+- Runner: `runs-on: [self-hosted, linux, vctcn]` plus `netbird` / `vctcn-runner` / `x64` only when the live pool labels require or clarify capability. Labels select the repo's pool pair, not resident vs edge: a job may run on either, so it must not depend on `172.16.1.0/24`, a VM 181 source IP, or the VM 181 image cache.
+- Pool: Docker build/push jobs need `flavor=docker` and VM181 helper-generated `extra_specs`, identical on the repo's resident and edge pools.
+- Concurrency: a repo can run two GARM jobs at once (one resident, one edge). Every job that writes a shared object (Komodo Stack or Variable, floating image tag, release asset, branch) uses a job-level `concurrency` group named after that object, identical across all workflows that write it, with `cancel-in-progress: false`. Use `queue: max` when each run carries its own intent (a release tag, a version to deploy) that must not be dropped; a workflow that only syncs the current default branch may keep the default single pending run, since the newer run supersedes the older one (mouriya-s-lab/garm-edge-incus#15). actionlint 1.7.12 does not know `queue`; suppress only that diagnostic.
 - Registry auth: use `moat-lab/keycloak-token-action@v1` (the old `Mouriya-Emma/keycloak-token-action` spelling still redirects and appears in existing workflows), then `docker login registry.237575.xyz -u sa-registry --password-stdin`.
 - Push immutable tags; add convenience tags only when appropriate (`short-sha`, `latest` on main, release tag, PR tag).
 - For Komodo delivery, CI may update bounded version/env fields and invoke deployment. Repo-backed durable Stack contents and workload secrets follow Shape D; registry pull authorization, host storage, mesh, Core provisioning, and placement remain IaC responsibilities.
@@ -154,7 +151,7 @@ Use GARM or a GARM job for any workflow that must:
 
 - reach `*.mouriya.lan`, NetBird peers, homelab services, Komodo, OpenBao, Step-CA, vctcn registry/NPM/edge, or other private endpoints;
 - publish to `registry.237575.xyz` from inside the mesh/private path;
-- validate production-like nested Docker/LXD runner behavior;
+- validate production-like nested Docker runner behavior (resident LXD or edge Incus);
 - call Komodo APIs without public ingress;
 - prove a release/deploy path that is consumed by homelab/vctcn infra.
 
@@ -162,42 +159,23 @@ A repo may mix runner classes by responsibility. Public/cheap tests can run on c
 
 ## GARM onboarding / pool shape
 
-Current runner onboarding lives in GARM sqlite and is mutated with `garm-cli` on VM 181 (requires a logged-in GARM client profile; the bare in-container `garm-cli` has none):
+Onboarding commands: see `pve-vctcn/apps/runner/README.md` ("GARM 仓 onboarding" and "边缘 Incus provider"). The shape they produce:
 
-1. GARM repository entity.
-2. Pool with labels matching workflow `runs-on`.
-3. GitHub webhook installed by GARM.
-4. Docker build/push or job-container workflows require Docker-capable pool shape.
+1. GARM repository entity with balancer `pack` and a GitHub webhook installed by GARM.
+2. A resident `lxd_local` pool (`priority=100`, enabled) with labels matching the workflow `runs-on`.
+3. An edge `incus_edge` pool (`priority=0`, image `images:ubuntu/24.04/cloud`) with the same labels, flavor, OS, bootstrap timeout and `extra_specs` as the resident pool. It is created disabled; only the availability gate writes its `enabled` — never pass `--enabled` to an edge pool.
+4. Docker build/push or job-container workflows require the Docker-capable pool shape (`flavor=docker`, `runner-bootstrap-timeout=60`, helper `--docker`).
 
-Standard Docker-capable pool pattern (resolve `<repo-id>`, verify current CLI/helper options, and execute only within the authorized runner-onboarding scope):
+Existing pools are changed live with `garm-cli pool update` on VM 181, applying the same change to both pools of a repo; OpenTofu does not manage repository registrations, pool labels, or `extra_specs`.
 
-```sh
-garm-cli pool add \
-  --repo <repo-id> \
-  --enabled \
-  --provider-name lxd_local \
-  --flavor docker \
-  --image ubuntu:24.04 \
-  --max-runners 1 \
-  --min-idle-runners 0 \
-  --runner-bootstrap-timeout 60 \
-  --os-arch amd64 \
-  --os-type linux \
-  --tags self-hosted,linux,x64,vctcn,netbird \
-  --extra-specs "$(ssh root@vctcn-runner.mouriya.lan \
-    /opt/runner/scripts/build-extra-specs.sh \
-    --docker \
-    --extra-packages 'unzip,zip,jq,git,make,wget,gnupg,ca-certificates,xz-utils,build-essential')"
-```
+Runner environment differences a workflow must tolerate:
 
-For existing pools, update live state with `garm-cli pool update ...`; do not expect OpenTofu to manage repository registrations, pool labels, or `extra_specs`.
-
-Tooling notes:
-
-- VM181 host NetBird peer provides mesh access; GARM-created LXD instances route via LXD bridge/NAT.
-- `registry-mesh-hosts.sh` pins `registry.237575.xyz` to VM182 mesh IP for docker-in-LXD push.
+- Mesh access comes from the runner host's NetBird peer: VM 181 (LXD bridge NAT) for resident runners, the laptop for edge runners. Edge runners cannot reach vctcn `172.16.1.0/24`.
+- `registry-mesh-hosts.sh` in `extra_specs` pins `registry.237575.xyz` to the VM 182 mesh IP on both runner kinds.
+- Only resident runners have the `/mnt/docker-images` cache for `catthehacker/ubuntu:act-24.04`; edge runners pull it.
+- Edge runner files have no Linux file capabilities (`ping` works through `ping_group_range`); job secrets are decrypted on the laptop; a laptop going offline fails the running job.
 - `sops` and `yq` are installed by `binary-tools-install.sh` when requested because Ubuntu apt packages are unsuitable/missing.
-- Do not inject old per-runner `netbird-install.sh`; use gateway mode.
+- Do not inject old per-runner `netbird-install.sh`.
 
 
 ## CI/CD 与 IaC handoff

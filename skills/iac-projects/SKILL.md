@@ -25,7 +25,7 @@ description: 定位个人基础设施的 owning repo（homelab-tf 或 pve-vctcn�
 
 ## 跨 repo 不变量
 
-- `vctcn-runner`（pve-vctcn 的 VM 181）经 Netbird mesh 伸进 homelab 做 CI/CD。影响 runner 在 homelab 侧所见的变更按对象权威路由：homelab DNS 记录与 homelab endpoint 归 `homelab-tf`；Komodo 的 Core/Periphery 配置、Server 记录、ResourceSync 对象归 `homelab-tf/komodo`，而 Stack 声明、compose、workload SOPS/Variables、release/RunSync 归 owning workload repo；NetBird policy/ACL 与 nameserver group 是 NetBird SaaS dashboard/API 的 live 状态（两 repo 均无 IaC provider），改前先读 live policy，改动在对应 homelab issue 里记录。即使 runner workspace 本身在 `pve-vctcn`，也不因此归 pve-vctcn。
+- GARM runner 经 Netbird mesh 伸进 homelab 做 CI/CD：控制器在 pve-vctcn 的 VM 181（`vctcn-runner`），执行端是 VM 181 上的常驻 LXD，或常驻满时操作员笔记本上的边缘 Incus 溢出，各自经所在主机的 Netbird peer 出网。影响 runner 在 homelab 侧所见的变更按对象权威路由：homelab DNS 记录与 homelab endpoint 归 `homelab-tf`；Komodo 的 Core/Periphery 配置、Server 记录、ResourceSync 对象归 `homelab-tf/komodo`，而 Stack 声明、compose、workload SOPS/Variables、release/RunSync 归 owning workload repo；NetBird policy/ACL 与 nameserver group 是 NetBird SaaS dashboard/API 的 live 状态（两 repo 均无 IaC provider），改前先读 live policy，改动在对应 homelab issue 里记录。即使 runner workspace 本身在 `pve-vctcn`，也不因此归 pve-vctcn。
 - 两个 repo 的 TF state 是不同对象：共用 Cloudflare R2 bucket `homelab-tf`，homelab-tf 用 key `<workspace>/terraform.tfstate`，pve-vctcn 用 `pve-vctcn/<workspace>/...`。PVE provider 凭据、各自的 SOPS secrets 文件和 Ansible inventory（仅 homelab-tf 有）互不共享。区分 PVE host 与 guest 的 NetBird 接入：homelab PVE 已入 mesh（`pve.mouriya.lan`），vctcn PVE（`192.99.9.212`）未入；不能从 guest 可达推断其 PVE host 的状态。
 - 根信任服务（OpenBao CT 314、Step-CA CT 313）永久留在 homelab；vctcn 服务需要时经 Netbird 伸进来用。没有显式的 homelab IaC issue + 设计，绝不把根信任外移。
 

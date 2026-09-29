@@ -49,7 +49,7 @@ description: >-
 | VMID、hostname、暴露端口 | owning IaC repo（OpenTofu） | placement + mesh DNS 惯例；保留已知 app 监听口 |
 | Komodo Core（homelab / trading）、Server 记录、ResourceSync 对象名 | `homelab-tf/komodo` 控制面 | 消费端、Core 覆盖度、owning workload repo 名 |
 | Stack 名与声明、compose、Komodo Variable 名、workload SOPS key | owning workload repo（`komodo/syncs/` + `stacks/`） | 该 repo 惯例 + 本次用途 |
-| GARM repository / pool label / flavor / extra_specs | VM 181 GARM sqlite 运行时状态，经 `garm-cli`（非 OpenTofu） | `local-cicd` 的 pool 模板、`pve-vctcn/apps/runner/README.md` |
+| GARM repository（balancer `pack`）、常驻 `lxd_local` pool 与同标签的边缘 `incus_edge` pool 的 label / flavor / extra_specs | VM 181 GARM sqlite 运行时状态，经 `garm-cli`（非 OpenTofu） | `pve-vctcn/apps/runner/README.md` 的 onboarding 与「边缘 Incus provider」 |
 | Keycloak `registry` realm client / `sa-registry` principal | `pve-vctcn/apps/registry` | registry workspace 惯例 |
 | homelab Komodo `DockerRegistryAccount` 与 token refresh Action | `homelab-tf/komodo` | 既有 registry account 契约 |
 
@@ -89,7 +89,7 @@ body 一律中文，遵循 `writing-issue`。已知字段填事实；可由执�
 
 只勾本次真正需要：
 
-- [ ] GARM repository + pool 定义（garm-cli，VM 181）
+- [ ] GARM repository（`pack`）+ 常驻 pool 与同标签边缘 pool（garm-cli，VM 181；边缘 pool 不带 `--enabled`，只由闸门写入）
 - [ ] Keycloak `registry` realm principal（`pve-vctcn/apps/registry`）
 - [ ] homelab Komodo `DockerRegistryAccount` / refresh（`homelab-tf/komodo`）
 - [ ] Komodo Server 记录 / ResourceSync 对象（`homelab-tf/komodo`）
@@ -109,7 +109,7 @@ body 一律中文，遵循 `writing-issue`。已知字段填事实；可由执�
 |---|------|------|------|------|------|
 | 1 | preview | IaC 变更边界 | `<plan/check>` | local | 无非预期 drift |
 | 2 | apply | 装配 GARM / Core / Stack / workflow | `<apply/deploy>` | local + source repo | exit 0 |
-| 3 | live-state | 读回装配 | `<当前 garm-cli 及 km-* / km-api 已确认的只读命令>` | live | pool、Server、Stack、ResourceSync 指向声明 |
+| 3 | live-state | 读回装配 | `<当前 garm-cli 及 km-* / km-api 已确认的只读命令>` | live | 常驻与边缘两个 pool 标签相同、priority 100/0、repo balancer 为 `pack`；Server、Stack、ResourceSync 指向声明 |
 | 4 | first-deploy | 首次 CD 端到端 | `<实际 tag / workflow_dispatch / 声明更新入口>` | source、GARM、Komodo 与 workload | 所需 artifact/声明生效、部署完成、runtime smoke 过 |
 | 5 | 无人工链路 | workflow 已含本契约所需产物处理/声明同步及 RunSync/DeployStack；无手工缺口 | 核对实际 workflow 和第一次运行证据 | source repo + live | 后续版本只需既定 source 触发事件 |
 | 6 | 复算 | 以第二个不同 workload 版本触发真实自动 rollout | `<既定 tag push / release publish / 声明更新入口>` | source、Komodo 与 workload | 自动 rollout 完成；实际运行实例的 image digest / artifact 或运行版本与首次不同、runtime smoke 过；仅声明版本变化不算 |

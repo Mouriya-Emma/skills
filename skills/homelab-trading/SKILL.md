@@ -29,7 +29,7 @@ Read repo-local `.claude/rules/{topology,dev-conventions,secrets-handling,deploy
 | ResourceSync object provisioning | `homelab-tf/komodo/roles/komodo-stacks-gitsource` via IaC workflow |
 | DNS / NetBird enrollment | `iac-projects`, current homelab DNS/VM authority |
 | `registry.237575.xyz` | `pve-vctcn/apps/registry` |
-| GARM runner VM 181 | `pve-vctcn/apps/runner`, `local-cicd` |
+| GARM controller (VM 181) and its resident/edge runners | `pve-vctcn/apps/runner`, `local-cicd` |
 | Core endpoint/auth/profile lookup | `km-endpoints` |
 | Existing Stack deploy/restart/stop/list | `km-stack` with `-p trading` |
 | Container ps/inspect/restart | `km-container` with `-p trading` |
@@ -40,7 +40,7 @@ Apply `iac-issue-routing` to work crossing those boundaries. Workload changes us
 
 - Pass `km -p trading` on every call. `km -p homelab` is a separate Core/state; there is no active-endpoint switch.
 - Connection guide: VM LAN `192.168.1.225`, mesh name `trading-agent.mouriya.lan`, trading Core `http://trading-agent.mouriya.lan:9120`. Verify current reachability/config before operating. The SSH MCP key is normalized by `ssh-mcp-sync` (the trading-agent name becomes `TRADINGAGENT`).
-- The sync job uses `vctcn-runner` VM 181's mesh path. Do not infer PVE mesh membership from VM reachability; the PVE host is enrolled as `pve.mouriya.lan` (`100.85.59.151`) per homelab-tf `topology.md` (the workload repo's `AGENTS.md` still says it is off-mesh — stale). For Core-unreachable failures, inspect runner mesh/DNS and the target path before changing stacks.
+- The sync job runs on a GARM self-hosted runner: resident LXD on VM 181 or, when the repo's resident pool is busy, edge Incus on the operator's laptop; it reaches the trading Core through that runner host's NetBird peer, and the trading secrets are decrypted on that host. Do not infer PVE mesh membership from VM reachability; the PVE host is enrolled as `pve.mouriya.lan` (`100.85.59.151`) per homelab-tf `topology.md`. For Core-unreachable failures, first identify which runner ran the job (job `runner_name`, GARM pool), then inspect that host's mesh/DNS and the target path before changing stacks.
 - Age identity is shared with homelab-tf (Bitwarden note `homelab-tf-sops-age-key`; recipient in each repo's `.sops.yaml`). Resolve it through the existing local setup; never print decrypted secrets as a verification step.
 - Follow the current secret-routing table, not “publish every key raw”: `KOMODO_TRADING_SYNC_WEBHOOK_SECRET` sets the Sync's `webhook_secret`; stack-consumed values become secret Variables. `FUTU_RSA_PEM` remains the multi-line source, with `FUTU_RSA_PEM_B64` derived only when the sync spec references that single-line variable. `secrets.yml.example` and `secrets-handling.md` document the contract.
 
