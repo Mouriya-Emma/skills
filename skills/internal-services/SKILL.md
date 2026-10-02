@@ -25,7 +25,7 @@ Count active top-level services/workloads, not backing containers. Do not count 
 
 ### homelab-tf
 
-Use the following placement map to locate declarations, not as proof that each guest is still present or active: DNS/DHCP (CT 312), Step-CA (CT 313), OpenBao (CT 314), Komodo Core + homelab-apps Stacks (VM 110 moat-app1), agent-runtime (VM 103), browser host (VM 104), nanoclaw (VM 106, declared stopped), app01 (VM 102, decom-pending, stopped), moat workload hosts (VM 111–113), and trading-agent with the independent trading Core (VM 130). Static CT/PVE identities come from `network/identities.yaml`.
+Use the following placement map to locate declarations, not as proof that each guest is still present or active: DNS/DHCP (CT 312), Step-CA (CT 313), OpenBao (CT 314, retired/stopped), Komodo Core + homelab-apps Stacks (VM 110 moat-app1), agent-runtime (VM 103), browser host (VM 104), nanoclaw (VM 106, retired/stopped), app01 (VM 102, retired/stopped), moat workload hosts (VM 111–113, retired/stopped), and trading-agent with the independent trading Core (VM 130). Static CT/PVE identities come from `network/identities.yaml`.
 
 Application Stack names, activity, target hosts, and declaration repos must be derived live:
 
@@ -69,8 +69,6 @@ Missing or incomplete dedicated app/service skills:
 - Homepage;
 - moat-browser;
 - fulcrum;
-- nanoclaw;
-- OpenBao;
 - Step-CA;
 - full DNS service operations beyond `dns-check`.
 
@@ -118,4 +116,4 @@ Do not treat `/Users/mouriya/Ext/code/homelab-tf/docs/iac-drift-investigation/*`
 
 ## When the answer turns into IaC work
 
-Placement, VM/CT, DNS/NAT/storage/ports, migration, or infrastructure credential changes leave inventory scope. Use `iac-projects` for ownership and `iac-issue-routing` for execution context and issue subtype. To refresh this signpost from current evidence, use `update-internal-services`.
+Placement, VM/CT, DNS/NAT/storage/ports, migration, or infrastructure credential changes leave inventory scope. Use `iac-projects` for ownership and `iac-issue-routing` for execution context. To refresh this signpost from current evidence, use `update-internal-services`.
