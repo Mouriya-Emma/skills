@@ -67,7 +67,6 @@ Missing or incomplete dedicated app/service skills:
 - registry;
 - Memos;
 - Homepage;
-- HAPI hub/runner;
 - moat-browser;
 - fulcrum;
 - nanoclaw;
