@@ -22,7 +22,7 @@ description: 起草或修订单个 GitHub issue，定义结果验收和 parent �
 
 **责任定位：** 写明问题落在哪个现有责任单元；它维护相关状态/规则（owner，核心）还是只消费既定契约（外围）；哪些调用方或消费者受影响、是否需同步迁移。状态的 owner 在别的单元、repo 或外部系统时，issue 向 owner 提请求或依赖它，不在消费侧另立副本。跨单元的目标边界属于必要决策，写作期裁决；单元内模块划分留给 PR，不预选。纯文档、文案等不涉及共享状态的改动，写一行责任单元即可，不为填段编写 owner 分析。
 
-**方案边界：** 按 [decision-closure](../writing-complex-issues/references/decision-closure.md) 的 a/b 判据：会改变操作员观察结果、或迫使另一实现单元同步改变的分叉（权威归属、状态空间、错误分类、接口语义），在 issue 裁决并写入「责任与必要决策」，只钉协作所需的最小语义；单元内部组织、算法、私有命名、模块划分留给 PR。裁决先查代码现状与项目既有惯例，不以「源未说明」列成未定义；缺事实就在写作期取得，设计分叉与 subagent 讨论后当场裁决并写依据与被否方案；操作员独有事实（业务动机、商业约束）缺失且会改变目标时，写作期直接问操作员。按 decision-closure 处置外部 owner 状态与只能实现后观察的结果。树内 child 不自行裁决跨单元契约：继承树根已裁决条款并逐字快照，写作中发现缺失或冲突当场回到树根裁决，发布后才暴露的走树根设计修正。源要求的外部契约照写；`iac:deploy` 按 `skill://iac-auto-deploy-issue` 写已决定的部署契约、目标 repo、artifact 和 live 验证。
+**方案边界：** 按 [decision-closure](../writing-complex-issues/references/decision-closure.md) 的 a/b 判据：会改变操作员观察结果、或迫使另一实现单元同步改变的分叉（权威归属、状态空间、错误分类、接口语义），在 issue 裁决并写入「责任与必要决策」，只钉协作所需的最小语义；单元内部组织、算法、私有命名、模块划分留给 PR。裁决先查代码现状与项目既有惯例，不以「源未说明」列成未定义；缺事实就在写作期取得，设计分叉与 subagent 讨论后当场裁决并写依据与被否方案；操作员独有事实（业务动机、商业约束）缺失且会改变目标时，写作期直接问操作员。按 decision-closure 处置外部 owner 状态与只能实现后观察的结果。树内 child 不自行裁决跨单元契约：继承树根已裁决条款并逐字快照，写作中发现缺失或冲突当场回到树根裁决，发布后才暴露的走树根设计修正。源要求的外部契约照写。
 
 **结果从原因推出：** 预期结果写问题消失后可观察的性质，按真实风险追问：哪些性质要成立、哪些已有性质不能变、相关的拒绝输入或非法转移如何处理、生命周期终点和适用边界在哪。只写本次确有的项，不为填表罗列不相关边界。
 
@@ -104,7 +104,7 @@ umbrella child 的继承快照、使用场景、baseline、不应残留等扩展
 
 ## 归属、发布与修订
 
-1. 按 driver 选 home repo：IaC 驱动归 IaC repo，app 驱动归 app repo；CICD onboarding parent 在应用 repo。
+1. 按 driver 选 home repo：IaC 驱动归 IaC repo，app 驱动归 app repo。
 2. 先定 parent。通过完整本地 payload 确认已有 parent 仍合适；新层级先建 parent 再建 child。一个 child 一个 issue parent，另一条线用散文引用。跨 repo（同 org）可连接，无需复制任务。
 3. API 操作及失败恢复见 [sub-issue-api.md](references/sub-issue-api.md)。PR 只用 closing keyword 连接 issue，不参与 sub-issue 边。
 4. 发布前检查：原子 Why 与来源、症状到原因的证据链、责任定位与必要决策、无未决项或指向未来结论的依赖、具体业务输入、外部约束与继承契约、逐条结果覆盖、范围边界、可跑命令和真实风险维度、延期验证 owner、对抗捷径，以及 repo/preset 必需段。起草中的 Source bundle 和内部脚手架不落 GitHub。

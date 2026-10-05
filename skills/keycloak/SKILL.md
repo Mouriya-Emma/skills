@@ -26,7 +26,7 @@ A similarly named realm or service record elsewhere does not establish ownership
 
 ## Durable integration workflow
 
-Changes to clients, redirects, realm settings, users, mappers, or IaC-managed secrets follow `iac-projects` and `iac-issue-routing`. Load `pve-vctcn/AGENTS.md` and its rules before implementation; external app agents supply the integration contract rather than editing IaC from app context. Execution-ready handoffs use `iac-auto-deploy-issue` with `iac:deploy` and explicit login/token verification.
+Changes to clients, redirects, realm settings, users, mappers, or IaC-managed secrets follow `iac-projects` and `iac-issue-routing`. Load `pve-vctcn/AGENTS.md` and its rules before implementation; external app agents supply the integration contract rather than editing IaC from app context. Execution-ready handoffs go to an issue in the owning IaC repo with explicit login/token verification.
 
 1. Classify the consumer as human-facing or machine-facing.
 2. Establish its client ID, public URL, exact redirect URIs, web origins, required claims/groups/roles, and confidential/public-client requirements from the app contract.

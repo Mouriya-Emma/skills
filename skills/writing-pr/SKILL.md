@@ -50,7 +50,7 @@ PR 按 diff 性质二选一，不混用：**纯文档 PR** 用「纯文档 PR �
 | 3：启动 / 运行时顺序 | 需重启、冷启动或部署时，采集干净的 post-change journal/log，检查顺序是否符合 issue 约束。 |
 | 4：端到端业务行为 | 在真实系统执行 outcome/checkpoint，包含正面和负面用例，记录具体输入、响应或终态。纯库无 CLI/UI 时用固定输入的一次性 driver 直接调用公开 API（如 `bun -e`、`node -e`、`python -c`）；不能退回套件输出。 |
 
-`iac:deploy` 证据必须覆盖 preview、apply、live-state、runtime 行，plan-only/mock-only 不关合同。
+IaC 基础层变更的证据必须覆盖 preview、apply、live-state、runtime 行，plan-only/mock-only 不关合同。
 
 裸 `is-active`、Running、HTTP 200 或 `Apply complete!` 是弱信号，须配具体内容/diff/读数。只有 log 没分析、无法打开的截图或只在本地 scrollback 的工件不合格。
 

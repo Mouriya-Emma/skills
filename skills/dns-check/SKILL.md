@@ -101,7 +101,7 @@ Use the parent identity authority in the authorized `homelab-tf` implementation:
 
 The renderer produces `coredns_static_a`, `coredns_static_cnames`, `coredns_scanner_ip_skip` and `homelab_dns_ipv4`. These are mandatory caller inputs, not values to add back into role defaults. CNAME-style aliases are materialized as Corefile query/answer rewrites.
 
-Use `iac-projects` and `iac-issue-routing`; an execution-ready deployment issue uses `iac-auto-deploy-issue`. The approved parent entrypoint is `cd ~/Ext/code/homelab-tf && make ct-provision-dns`: `Makefile` discovers managed VM YAMLs and injects renderer output through extra-vars. This is a live apply to CT 312, not a local sandbox; follow the current repo's full apply/evidence boundary.
+Use `iac-projects` and `iac-issue-routing`. The approved parent entrypoint is `cd ~/Ext/code/homelab-tf && make ct-provision-dns`: `Makefile` discovers managed VM YAMLs and injects renderer output through extra-vars. This is a live apply to CT 312, not a local sandbox; follow the current repo's full apply/evidence boundary.
 
 ### Case D — ARP missing or guest connectivity failing
 Separate a scanner blind spot from actual guest failure. Check:

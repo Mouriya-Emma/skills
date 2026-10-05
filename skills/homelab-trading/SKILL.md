@@ -34,7 +34,7 @@ Read repo-local `.claude/rules/{topology,dev-conventions,secrets-handling,deploy
 | Existing Stack deploy/restart/stop/list | `km-stack` with `-p trading` |
 | Container ps/inspect/restart | `km-container` with `-p trading` |
 
-Apply `iac-issue-routing` to work crossing those boundaries. Workload changes use this repo's issue/PR; infrastructure work uses its owning repo and appropriate issue subtype. Routine version rollout through the existing CD path is not a new `iac:deploy` task.
+Apply `iac-issue-routing` to work crossing those boundaries. Workload changes use this repo's issue/PR; infrastructure work uses its owning repo. Routine version rollout through the existing CD path is not an IaC task.
 
 ## Connection and secret invariants
 

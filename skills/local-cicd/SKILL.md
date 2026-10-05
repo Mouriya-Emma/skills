@@ -72,7 +72,7 @@ Implementation expectations:
   explicit dependency), not race a parallel release job on the same tag.
 - Keep compilation and packaging separate: the compiler produces the artifact;
   the runtime Dockerfile copies it and installs only runtime dependencies.
-- Runner: `runs-on: [self-hosted, linux, vctcn]` plus `netbird` / `vctcn-runner` / `x64` only when the live pool labels require or clarify capability. Labels select the repo's pool pair, not resident vs edge: a job may run on either, so it must not depend on `172.16.1.0/24`, a VM 181 source IP, or the VM 181 image cache.
+- Runner: `runs-on: [self-hosted, linux, vctcn]` plus `netbird` / `vctcn-runner` / `x64` only when the live pool labels require or clarify capability. These base labels select the repo's pool pair, not resident vs edge: a job may run on either, so it must not depend on `172.16.1.0/24`, a VM 181 source IP, or the VM 181 image cache. A job that needs more memory than VM 181's 4 GiB (shared by all resident runners) adds `cachyos`, which only the repo's edge pool carries once the operator adds it there; that job runs only on the CachyOS edge host and waits while the edge pool is disabled (pve-vctcn#300).
 - Pool: Docker build/push jobs need `flavor=docker` and VM181 helper-generated `extra_specs`, identical on the repo's resident and edge pools.
 - Concurrency: a repo can run two GARM jobs at once (one resident, one edge). Every job that writes a shared object (Komodo Stack or Variable, floating image tag, release asset, branch) uses a job-level `concurrency` group named after that object, identical across all workflows that write it, with `cancel-in-progress: false`. Use `queue: max` when each run carries its own intent (a release tag, a version to deploy) that must not be dropped; a workflow that only syncs the current default branch may keep the default single pending run, since the newer run supersedes the older one (mouriya-s-lab/garm-edge-incus#15). actionlint 1.7.12 does not know `queue`; suppress only that diagnostic.
 - Registry auth: use `moat-lab/keycloak-token-action@v1` (the old `Mouriya-Emma/keycloak-token-action` spelling still redirects and appears in existing workflows), then `docker login registry.237575.xyz -u sa-registry --password-stdin`.
@@ -180,9 +180,9 @@ Runner environment differences a workflow must tolerate:
 
 ## CI/CD 与 IaC handoff
 
-已接入的 workload 版本迭代默认由其 repo 的 workflow、`komodo/syncs/`、`stacks/` 完成。Image tag/digest、有界 Variables、RunSync/DeployStack 不需要另开 `iac:deploy`。
+已接入的 workload 版本迭代默认由其 repo 的 workflow、`komodo/syncs/`、`stacks/` 完成，用 `km-stack`/`km-gitops` 操作。Image tag/digest、有界 Variables、RunSync/DeployStack 都不走 IaC。
 
-出现 host/VM/CT、DNS/mesh/ingress、根信任、GARM pool、Core provisioning，或需 IaC 落地的 secret 配置时，用 `iac-issue-routing` 分清边界。一般执行契约用 `iac-auto-deploy-issue`；首次装配常驻 Komodo CD 用 `iac-cicd-onboarding-issue` 并证明第二次不同版本 rollout；未决设计记录明确 blocker，不触发部署。
+出现 host/VM/CT、DNS/mesh/ingress、根信任、GARM pool、Core provisioning，或需 IaC 落地的 secret 配置时，用 `iac-issue-routing` 分清边界并交 owning IaC repo；未决设计记录明确 blocker。
 
 Issue 只承接 CI/CD 未覆盖的工作，写清已发布的 artifact 和剩余 IaC 责任；不要让执行 agent 重跑已有自动 build/push/RunSync。
 

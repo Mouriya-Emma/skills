@@ -1,6 +1,6 @@
 ---
 name: iac-projects
-description: 定位个人基础设施的 owning repo（homelab-tf 或 pve-vctcn），用于 Proxmox、VM/CT、DNS、mesh、存储、placement 和跨 repo 不变量。执行权限与 issue 子形态另见 iac-issue-routing。
+description: 定位个人基础设施的 owning repo（homelab-tf 或 pve-vctcn），用于 Proxmox、VM/CT、DNS、mesh、存储、placement 和跨 repo 不变量。执行权限与应用/基础层的交付路径另见 iac-issue-routing。
 ---
 
 # iac-projects — repo 路标
@@ -34,5 +34,5 @@ description: 定位个人基础设施的 owning repo（homelab-tf 或 pve-vctcn�
 1. 判断是否 IaC-adjacent（判据与边界：`iac-issue-routing`）。
 2. 按上面的两分定位 owning repo；服务名分不清用 `internal-services`。
 3. 进入该 repo 工作目录，读 `AGENTS.md` 及其指向的 rules/skills。
-4. 按 `iac-issue-routing` 选择直接实现、可执行部署 issue、首次 CD onboarding 或 requirement-only handoff；issue body 用 `writing-issue` 及对应子形态契约。
+4. 按 `iac-issue-routing` 选择：应用部署走 `km-*`；基础层走直接实现、可执行 issue 或 requirement-only handoff；issue body 用 `writing-issue`。
 5. 然后才计划或实现。
