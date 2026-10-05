@@ -28,7 +28,7 @@ Static lists in this skill are examples/patterns. Treat live GARM + current repo
 | Stage | Authority |
 |---|---|
 | Source repo | App/plugin/sync code, workflow YAML, artifact naming, app-level deploy trigger. |
-| Runner seam | One GARM controller on VM 181 `vctcn-runner`, pool state in GARM sqlite (not TF). Each onboarded repo has a resident `lxd_local` pool (LXD on VM 181, mesh via VM 181's NetBird peer) and an edge `incus_edge` pool (Incus on the operator's laptop, mesh via the laptop's peer) with identical labels; the edge takes a job only when the resident pool is full. See `pve-vctcn/apps/runner/README.md`. |
+| Runner seam | One GARM controller on VM 181 `vctcn-runner`, pool state in GARM sqlite (not TF). Each onboarded repo has a resident `lxd_local` pool (LXD on VM 181, mesh via VM 181's NetBird peer) and an edge `incus_edge` pool (Incus on the operator's CachyOS laptop, mesh via that laptop's peer) with the same base labels; a common-label job prefers resident and overflows to edge. An edge pool may additionally carry `cachyos` (pve-vctcn#300), which makes jobs requiring it edge-only. See `pve-vctcn/apps/runner/README.md`. |
 | Private registry | VM 182 `vctcn-registry`, `registry.237575.xyz`, Keycloak `registry` realm, `sa-registry`; maintained by `pve-vctcn/apps/registry`. |
 | Homelab deploy | `homelab-tf` owns Core/Periphery, ResourceSync provisioning, VMs/CTs, DNS/mesh/storage; workload repos own repo-backed Stack contents and secrets. |
 | vctcn deploy/edge | VM 180 Keycloak, VM 181 runner, VM 182 registry, NPM/DNS/edge under `pve-vctcn`. |
@@ -72,12 +72,12 @@ Implementation expectations:
   explicit dependency), not race a parallel release job on the same tag.
 - Keep compilation and packaging separate: the compiler produces the artifact;
   the runtime Dockerfile copies it and installs only runtime dependencies.
-- Runner: `runs-on: [self-hosted, linux, vctcn]` plus `netbird` / `vctcn-runner` / `x64` only when the live pool labels require or clarify capability. These base labels select the repo's pool pair, not resident vs edge: a job may run on either, so it must not depend on `172.16.1.0/24`, a VM 181 source IP, or the VM 181 image cache. A job that needs more memory than VM 181's 4 GiB (shared by all resident runners) adds `cachyos`, which only the repo's edge pool carries once the operator adds it there; that job runs only on the CachyOS edge host and waits while the edge pool is disabled (pve-vctcn#300).
-- Pool: Docker build/push jobs need `flavor=docker` and VM181 helper-generated `extra_specs`, identical on the repo's resident and edge pools.
-- Concurrency: a repo can run two GARM jobs at once (one resident, one edge). Every job that writes a shared object (Komodo Stack or Variable, floating image tag, release asset, branch) uses a job-level `concurrency` group named after that object, identical across all workflows that write it, with `cancel-in-progress: false`. Use `queue: max` when each run carries its own intent (a release tag, a version to deploy) that must not be dropped; a workflow that only syncs the current default branch may keep the default single pending run, since the newer run supersedes the older one (mouriya-s-lab/garm-edge-incus#15). actionlint 1.7.12 does not know `queue`; suppress only that diagnostic.
-- Registry auth: use `moat-lab/keycloak-token-action@v1` (the old `Mouriya-Emma/keycloak-token-action` spelling still redirects and appears in existing workflows), then `docker login registry.237575.xyz -u sa-registry --password-stdin`.
+- Runner: `runs-on: [self-hosted, linux, vctcn]` plus `netbird` / `vctcn-runner` / `x64` only when the live pool labels require or clarify capability. These base labels select the repo's pool pair, not resident vs edge: a job may run on either, so it must not depend on `172.16.1.0/24`, a VM 181 source IP, or the VM 181 image cache. A job that needs more memory than VM 181's 4 GiB (shared by all resident runners) adds `cachyos`, which only the repo's edge pool carries once the operator adds it there (today only paseo's); that job runs only on the CachyOS edge host and waits while the edge pool is disabled (pve-vctcn#300).
+- Pool: Docker build/push jobs need `flavor=docker` and VM181 helper-generated `extra_specs` (`build-extra-specs.sh --docker`), identical on the repo's resident and edge pools. A default-flavor pool (e.g. homelab-moat) has no Docker and no registry pin.
+- Concurrency: a repo has capacity for at most one resident and one edge job at a time, and the edge half is conditional: the availability gate must have the edge pool enabled, and the edge Incus project allows only **two instances across all repositories**. Every job that writes a shared object (Komodo Stack or Variable, floating image tag, release asset, branch) uses a job-level `concurrency` group named after that object, identical across all workflows that write it, with `cancel-in-progress: false`. Use `queue: max` when each run carries its own intent (a release tag, a version to deploy) that must not be dropped; a workflow that only syncs the current default branch may keep the default single pending run, since the newer run supersedes the older one (mouriya-s-lab/garm-edge-incus#15). actionlint 1.7.12 does not know `queue`; suppress only that diagnostic.
+- Registry push: follow [Private registry](#private-registry-registry237575xyz) below. Naming the token action is not enough; the repo must be onboarded to the registry secret first.
 - Push immutable tags; add convenience tags only when appropriate (`short-sha`, `latest` on main, release tag, PR tag).
-- For Komodo delivery, CI may update bounded version/env fields and invoke deployment. Repo-backed durable Stack contents and workload secrets follow Shape D; registry pull authorization, host storage, mesh, Core provisioning, and placement remain IaC responsibilities.
+- For Komodo delivery, CI may update bounded version/env fields and invoke deployment. Repo-backed durable Stack contents and workload secrets follow Shape D; host storage, mesh, Core provisioning, placement and the target Core's registry account remain IaC responsibilities (see [Pull side](#pull-side-komodo-deploy)).
 - If the service has HTTP semantics, prefer `/healthz` and `/version`; if not, use an equivalent runtime smoke.
 
 Canonical sample docs:
@@ -163,20 +163,82 @@ Onboarding commands: see `pve-vctcn/apps/runner/README.md` ("GARM 仓 onboarding
 
 1. GARM repository entity with balancer `pack` and a GitHub webhook installed by GARM.
 2. A resident `lxd_local` pool (`priority=100`, enabled) with labels matching the workflow `runs-on`.
-3. An edge `incus_edge` pool (`priority=0`, image `images:ubuntu/24.04/cloud`) with the same labels, flavor, OS, bootstrap timeout and `extra_specs` as the resident pool. It is created disabled; only the availability gate writes its `enabled` — never pass `--enabled` to an edge pool.
+3. An edge `incus_edge` pool (`priority=0`, image `images:ubuntu/24.04/cloud`) with the same base labels, flavor, OS, bootstrap timeout and `extra_specs` as the resident pool; the only intended label difference is an operator-added `cachyos` capability. It is created disabled; only the availability gate writes its `enabled` — never pass `--enabled` to an edge pool.
 4. Docker build/push or job-container workflows require the Docker-capable pool shape (`flavor=docker`, `runner-bootstrap-timeout=60`, helper `--docker`).
 
 Existing pools are changed live with `garm-cli pool update` on VM 181, applying the same change to both pools of a repo; OpenTofu does not manage repository registrations, pool labels, or `extra_specs`.
 
 Runner environment differences a workflow must tolerate:
 
-- Mesh access comes from the runner host's NetBird peer: VM 181 (LXD bridge NAT) for resident runners, the laptop for edge runners. Edge runners cannot reach vctcn `172.16.1.0/24`.
-- `registry-mesh-hosts.sh` in `extra_specs` pins `registry.237575.xyz` to the VM 182 mesh IP on both runner kinds.
+- Mesh access comes from the runner host's NetBird peer: VM 181 (LXD bridge NAT) for resident runners, the CachyOS edge host for edge runners. Edge runners cannot reach vctcn `172.16.1.0/24`.
+- In Docker-capable pools, `registry-mesh-hosts.sh` in `extra_specs` pins `registry.237575.xyz` to VM 182's mesh IP on both runner kinds; non-Docker pools get no pin. See [Private registry](#private-registry-registry237575xyz) for what that path implies.
 - Only resident runners have the `/mnt/docker-images` cache for `catthehacker/ubuntu:act-24.04`; edge runners pull it.
-- Edge runner files have no Linux file capabilities (`ping` works through `ping_group_range`); job secrets are decrypted on the laptop; a laptop going offline fails the running job.
-- `sops` and `yq` are installed by `binary-tools-install.sh` when requested because Ubuntu apt packages are unsuitable/missing.
+- Edge runner files have no Linux file capabilities (`ping` works through `ping_group_range`); job secrets are decrypted on the edge host; the edge host going offline fails the running job.
+- `sops` and `yq` are installed by `binary-tools-install.sh` only when the pool was built with them requested (`--extra-packages sops,yq,…`; today homelab-apps and homelab-trading). The installer downloads with `curl`, so request `curl` too. Do not assume these tools on other pools.
 - Do not inject old per-runner `netbird-install.sh`.
 
+## Private registry (`registry.237575.xyz`)
+
+Owner: `pve-vctcn/apps/registry` (VM 182; Keycloak realm `registry`; docker_auth). Read its README "Authentication flow" before changing anything here.
+
+### How authentication works
+
+The Docker password is a **Keycloak access token**, never the client secret:
+
+1. A token producer runs client_credentials against realm `registry`, client `registry`, and gets an access token whose `aud` includes `registry` (a client audience mapper; Keycloak 26.6.2+ refuses introspection otherwise).
+2. `docker login registry.237575.xyz -u sa-registry --password-stdin` with that token. The username must be literally `sa-registry`.
+3. On **every** registry token request (each push/pull scope), Docker re-sends that stored token; docker_auth introspects it at Keycloak and, if active, issues a 900-second registry JWT.
+
+So the Keycloak token must still be valid at every push and pull, not just at login. Its effective lifetime is **1800 seconds** today (realm SSO session cap), there is no refresh token, and the action does not renew it. Use the action's `expires-in` output, not a remembered default.
+
+### Onboarding a repo that pushes
+
+GARM onboarding does **not** give a repo registry access. First add the repo to the IaC secret sync in `pve-vctcn/apps/registry/variables.tf` (`registry_consumer_repos_mouriya_s_lab` or `registry_consumer_repos` for moat-lab) and apply that workspace; it writes the Actions secret `KEYCLOAK_REGISTRY_CLIENT_SECRET` and keeps it in sync when the client secret rotates. Never set this secret by hand, never put it in a public repo (public source repos publish through a private deploy repo, as moat-browser does through `moat-browser-deploy`).
+
+Workflow step:
+
+```yaml
+- id: registry-token
+  uses: moat-lab/keycloak-token-action@v1
+  with:
+    keycloak-url: https://keycloak.237575.xyz
+    realm: registry
+    client-id: registry
+    client-secret: ${{ secrets.KEYCLOAK_REGISTRY_CLIENT_SECRET }}
+- run: printf '%s' "$TOKEN" | docker login registry.237575.xyz -u sa-registry --password-stdin
+  env:
+    TOKEN: ${{ steps.registry-token.outputs.access-token }}
+```
+
+Place the token step **after** the build and immediately before the first push, so login-to-last-push stays well under the token lifetime. A job with several publish phases separated by long work mints and logs in again before each phase. The old spelling `Mouriya-Emma/keycloak-token-action` redirects to the same action; new workflows use `moat-lab/…`.
+
+To check the runner/registry seam without releasing anything, dispatch runner-canary's pull-only canary: `gh workflow run registry-auth.yml -R mouriya-s-lab/runner-canary`. Its `release.yml` is the full publish example.
+
+### Network path from GARM runners
+
+Docker-capable runners resolve `registry.237575.xyz` to VM 182's mesh IP via `/etc/hosts`; VM 182's `registry-mesh-forward` (socat) passes TCP :443 through to NPM, which terminates TLS and routes `/v2/` to the registry and `/auth` to docker_auth. TLS and the `/auth` realm URL are identical to the public path. Outside the mesh (GitHub-hosted runners, off-mesh laptops) the name resolves publicly to the vctcn host; VM 181 resident runners cannot use the public path because OVH does not hairpin.
+
+A push opens a burst of parallel connections at once (roughly one blob HEAD per layer). From the edge host (~180 ms RTT) those handshakes complete together, so the forwarder's listen queue must hold them: with socat's default backlog of 5 the VM 182 kernel reset most of them and edge pushes failed with `connection reset by peer` while auth had already succeeded (pve-vctcn#302, fixed with `backlog=1024`). Lowering `max-concurrent-uploads` does not help, because the HEAD checks are not bounded by it. If that error returns, check the listener first on VM 182: `ss -ltn 'sport = :443'` (Send-Q is the backlog) and `nstat -az TcpExtListenOverflows TcpExtTCPReqQFullDoCookies TcpOutRsts`.
+
+### Pull side (Komodo deploy)
+
+Komodo Periphery never uses a CI runner's login. The target Core's IaC (`homelab-tf/komodo`, role `komodo-registry-account`) maintains a `DockerRegistryAccount` `{domain: registry.237575.xyz, username: sa-registry}` holding a client_credentials access token, re-minted every 15 minutes by the Komodo Action `refresh-registry-237575-token` (shorter than the 1800-second lifetime). The workload's Stack declaration binds it:
+
+```toml
+registry_provider = "registry.237575.xyz"
+registry_account = "sa-registry"
+```
+
+Only the primary homelab Core has this role today. Deploying a private image to another Core (trading included) first needs that Core's IaC to provision the account and refresher. Before relying on a pull, check the account exists and the refresher Action's last run succeeded.
+
+### Telling failures apart
+
+| Symptom | Meaning | Where to look |
+|---|---|---|
+| `unauthorized: Auth failed` at login or on a later push/pull | Keycloak token rejected: expired, wrong secret, missing/unsynced repo secret, or audience/introspection broken | token age vs `expires-in`; repo listed in the IaC sync; docker_auth logs on VM 182; Keycloak `INTROSPECT_TOKEN_ERROR` |
+| `denied` / 403 | docker_auth ACL (only `sa-registry` is allowed) | username used at login |
+| `connection reset by peer` / EOF to the registry IP | transport, not auth; login and token issuance already succeeded | runner kind (resident vs edge); VM 182 mesh-forward backlog and listen-overflow counters (see Network path); then NPM logs |
+| Deploy pull fails, CI pull works | target Core's registry account or refresher | Core `DockerRegistryAccount`, refresher Action history, Stack `registry_account` binding |
 
 ## CI/CD 与 IaC handoff
 
@@ -192,7 +254,7 @@ Pick evidence by CI/CD shape:
 
 | Shape | Required evidence |
 |---|---|
-| Image service | artifact-authority decision; one project build; release checksum/digest match when packaging an existing artifact; Docker build; pushed immutable image; pull/inspect pushed image; GARM job success; deploy/run smoke if deploy in scope. |
+| Image service | artifact-authority decision; one project build; release checksum/digest match when packaging an existing artifact; Docker build; pushed immutable image; pull/inspect of the pushed digest from the runner; GARM job success; when deploy is in scope, the **target Core's** Compose Pull success for that digest and a run smoke (CI pullback does not prove the target can pull). |
 | App-level deploy | project tests/build, artifact transfer, bounded remote command output, target service active/running, app smoke. |
 | Release artifact consumption | authoritative build/release success; published artifact + checksum; consumer checksum verification; owning deployment workflow and runtime evidence when deployment is in scope. |
 | ResourceSync | SOPS decrypt/tooling check, Komodo Variable/ResourceSync API success, `RunSync` accepted/completed, stack smoke if runtime changed. |
