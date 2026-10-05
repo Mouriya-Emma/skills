@@ -22,7 +22,7 @@ Helpers below are relative to the installed `~/.claude/skills/km-endpoints/` ski
 
 The endpoint inventory is **not automatically synced from IaC**. Register only a Core actually declared by the owning IaC change: homelab Core inventory is in `homelab-tf`'s `komodo_core_hosts`. Resolve host and credentials from that change's authorized secret source (for example `homelab-tf/_shared/ansible/secrets.yml`), not from the user's clipboard. Do not create a speculative connection or embed secrets in Markdown/committed code. Keep the external endpoint directory private (mode `0700`, endpoint files `0600`), outside repositories and npx-managed skill payloads. Installing or updating the skill does not migrate, populate or overwrite this inventory.
 
-Known routing: `homelab` is moat-app1 / VM 110; `trading` is trading-agent / VM 130; `nekoringo` is an independent Core at `http://218.33.108.254:9120`, owned by `nekoringo-iac/apps/komodo` (its local profile currently returns 401 — the registered key is not valid for that Core). Keycloak/Forgejo belong to pve-vctcn on vctcn-app1 / VM 180, not these Cores. Inventory and IaC are the authorities when adding or removing connections.
+Known routing: `homelab` is moat-app1 / VM 110; `trading` is trading-agent / VM 130; `nekoringo` is an independent Core at `http://218.33.108.254:9120`, owned by `nekoringo-iac/apps/komodo` (its local profile currently returns 401 — the registered key is not valid for that Core). Keycloak belongs to pve-vctcn on vctcn-app1 / VM 180, not these Cores. Inventory and IaC are the authorities when adding or removing connections.
 
 ## List and select
 

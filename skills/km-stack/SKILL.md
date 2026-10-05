@@ -22,7 +22,7 @@ The default listing hides down Stacks. Resolve the exact Stack and Server from t
 - **`repo` empty, `file_contents=true`:** retired shape — no current Stack on either Core uses it and `homelab-tf/komodo` no longer has a `file_contents` Stack mechanism. Treat such a record as unexpected drift: establish its owner and move it to the workload-repo/ResourceSync path; never recreate or edit the retired mechanism.
 - **Neither shape is established:** inspect ownership before changing config. Do not guess which field wins.
 
-Keycloak/Forgejo are pve-vctcn Compose services on vctcn-app1 / VM 180, not homelab or trading Stacks. Historical down records do not authorize deploying them here.
+Keycloak is a pve-vctcn Compose service on vctcn-app1 / VM 180, not a homelab or trading Stack; the Forgejo and Mattermost services there are retired (pve-vctcn#286). Historical down records do not authorize deploying any of them here.
 
 ## Choose the smallest action that meets the request
 

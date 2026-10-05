@@ -1,7 +1,7 @@
 ---
 name: container-management
 description: >-
-  Entry point for homelab Docker via Komodo: choose a Core, inspect workloads, then route Stack, container, GitOps, build, cleanup, database or API work. Keycloak/Forgejo belong to pve-vctcn on vctcn-app1, not these Cores.
+  Entry point for homelab Docker via Komodo: choose a Core, inspect workloads, then route Stack, container, GitOps, build, cleanup, database or API work. Keycloak belongs to pve-vctcn on vctcn-app1, not these Cores.
 allowed-tools: Bash, Read
 ---
 
@@ -28,7 +28,7 @@ For homelab, `Local` denotes the Periphery on moat-app1 and `browser` the Periph
 
 For Nekoringo, a dedicated Core owned by `mouriya-s-lab/nekoringo-iac` (`apps/komodo`) runs on `nekoringo1` (218.33.108.254, Docker control plane and edge services) with its local Periphery as Server `nekoringo1`. `nekoringo2` (160.191.41.242, production and test workloads) is its standalone second-stage Periphery; the IaC marks its onboarding complete. Both are dedicated Nekoringo hosts, outside homelab and trading. A `nekoringo` profile is registered locally but `km -p nekoringo ls servers` currently returns 401: reconcile the existing endpoint credentials through `skill://km-endpoints` (do not register a duplicate), then rediscover with `ls servers` before describing any Server as online or running a command.
 
-**Excluded:** Keycloak and Forgejo run on `vctcn-app1` (VM 180) under `pve-vctcn` Compose, not either Core. Historical down Stack records do not transfer ownership. Use `skill://keycloak` for Keycloak and `skill://iac-projects` for the owning pve-vctcn path.
+**Excluded:** Keycloak runs on `vctcn-app1` (VM 180) under `pve-vctcn` Compose, not either Core; Forgejo and Mattermost there are retired (pve-vctcn#286). Historical down Stack records do not transfer ownership. Use `skill://keycloak` for Keycloak and `skill://iac-projects` for the owning pve-vctcn path.
 
 ## Choose the resource-level workflow
 

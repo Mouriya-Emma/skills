@@ -18,9 +18,9 @@ The placement guide is VM 180 `vctcn-app1`, public/admin URL `https://keycloak.2
 
 | Realm | Purpose / selection |
 |---|---|
-| `moat` | Human SSO clients (Mattermost, Forgejo) plus the `moat-platform` confidential/service-account client used for Standard Token Exchange. Use for human-facing apps unless current IaC specifies otherwise. |
+| `moat` | Human SSO clients: OpenCloud's public client `web`, plus the retained clients of the retired Mattermost and Forgejo, and the `moat-platform` confidential/service-account client used for Standard Token Exchange. Use for human-facing apps unless current IaC specifies otherwise. |
 | `registry` | Machine authentication for `registry.237575.xyz` and `sa-registry`; keep separate from human login. |
-| `master` | Admin authentication only; do not create application clients here. |
+| `master` | Admin authentication only; do not create application clients here. Its two admins are declared in `apps/vctcn-app1/main.tf`: `mouriya` (the operator) and `riri-agent` (agents and automation). |
 
 A similarly named realm or service record elsewhere does not establish ownership. Check current IaC before selecting it.
 
@@ -37,12 +37,19 @@ Admin REST examples below are inspection, not an alternative persistent configur
 
 ## Authentication helper
 
-`token.sh` consumes existing environment credentials; it does not discover or store them. Resolve them from the authorized IaC/secret-store or existing local CLI setup under `credentials-belong-in-iac`, without printing values. If that path is unavailable, investigate the integration gap rather than asking the user to paste secrets or run the command for you.
+`token.sh` consumes existing environment credentials; it does not discover or store them. Agents authenticate as the master-realm admin `riri-agent`, never as the operator's `mouriya`. Its password is the pve-vctcn SOPS key `keycloak_agent_password`; load it into the environment without printing it:
+
+```bash
+export KC_ADMIN_USERNAME=riri-agent
+export KC_ADMIN_PASSWORD="$(sops -d --extract '["keycloak_agent_password"]' /Users/mouriya/Ext/code/pve-vctcn/_shared/secrets/secrets.yml)"
+```
+
+If that path is unavailable, investigate the integration gap rather than asking the user to paste secrets or run the command for you.
 
 | Variable | Contract |
 |---|---|
-| `KC_ADMIN_USERNAME` | Required, nonempty |
-| `KC_ADMIN_PASSWORD` | Required, nonempty |
+| `KC_ADMIN_USERNAME` | Required, nonempty; `riri-agent` |
+| `KC_ADMIN_PASSWORD` | Required, nonempty; SOPS `keycloak_agent_password` |
 | `KC_HOST` | Optional; defaults to `https://keycloak.237575.xyz` |
 | `KC_TOKEN` | Set by the sourced helper after master-realm password grant using client `admin-cli` |
 
@@ -91,9 +98,9 @@ Use OIDC discovery to confirm endpoints for the selected realm:
 
 ## Consumer-specific sources
 
-For Forgejo, read `apps/vctcn-app1/main.tf`, its `templates/compose.yaml.tftpl`, and `scripts/register-forgejo-oidc.sh` before changing SSO settings.
+For OpenCloud, read `keycloak_openid_client.opencloud_web`, its client roles and `roles` mapper in `apps/vctcn-app1/main.tf`; the OpenCloud side is appliance-local compose on OMV (pve-vctcn#291).
 
-For Mattermost, read `apps/vctcn-app1/main.tf` (`keycloak_openid_client.mattermost` and its protocol mappers) and `apps/vctcn-app1/templates/compose.yaml.tftpl` (`MM_GITLABSETTINGS_*`) before changing the `moat` OIDC integration.
+Mattermost and Forgejo are retired; their `moat` clients, mappers and users remain declared in `apps/vctcn-app1/main.tf` as retained identity (pve-vctcn#286), not live integrations.
 
 For `moat-platform` token exchange, read the `moat-platform` client and its token-exchange notes in `apps/vctcn-app1/main.tf`.
 

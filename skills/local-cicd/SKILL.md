@@ -31,7 +31,7 @@ Static lists in this skill are examples/patterns. Treat live GARM + current repo
 | Runner seam | One GARM controller on VM 181 `vctcn-runner`, pool state in GARM sqlite (not TF). Each onboarded repo has a resident `lxd_local` pool (LXD on VM 181, mesh via VM 181's NetBird peer) and an edge `incus_edge` pool (Incus on the operator's laptop, mesh via the laptop's peer) with identical labels; the edge takes a job only when the resident pool is full. See `pve-vctcn/apps/runner/README.md`. |
 | Private registry | VM 182 `vctcn-registry`, `registry.237575.xyz`, Keycloak `registry` realm, `sa-registry`; maintained by `pve-vctcn/apps/registry`. |
 | Homelab deploy | `homelab-tf` owns Core/Periphery, ResourceSync provisioning, VMs/CTs, DNS/mesh/storage; workload repos own repo-backed Stack contents and secrets. |
-| vctcn deploy/edge | VM 180 Keycloak/Forgejo, VM 181 runner, VM 182 registry, NPM/DNS/edge under `pve-vctcn`. |
+| vctcn deploy/edge | VM 180 Keycloak, VM 181 runner, VM 182 registry, NPM/DNS/edge under `pve-vctcn`. |
 
 ## Decide the CI/CD shape by artifact type
 
@@ -116,7 +116,7 @@ Use when an existing authoritative build publishes a release artifact and checks
 
 ### D. Komodo ResourceSync / secrets-sync repo
 
-Use for repo-backed homelab workloads such as `homelab-apps`, `homelab-moat`, `moat-browser`, `runner-canary`, and `homelab-trading`, where the owning repo owns Stack declarations, release state, and workload secrets but not VM/Core provisioning.
+Use for repo-backed homelab workloads such as `homelab-apps`, `homelab-moat`, `moat-browser-deploy`, `runner-canary`, and `homelab-trading`, where the owning repo owns Stack declarations, release state, and workload secrets but not VM/Core provisioning.
 
 ```mermaid
 flowchart TD
