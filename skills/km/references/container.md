@@ -1,12 +1,6 @@
----
-name: km-container
-description: Inspect Periphery Servers and raw containers with ps/inspect; perform a bounded start, restart, stop or destroy without redeploying the parent Stack. Use for container debugging, host inventory and explicit single-container operations, not durable Stack changes.
-allowed-tools: Bash, Read
----
-
 # Containers and Periphery Servers
 
-Select the Core through `skill://container-management`; missing profile recovery belongs to `skill://km-endpoints`. Server and container names are scoped to that Core. Homelab's `Local` is moat-app1 / VM 110 and `browser` is VM 104; rediscover rather than reusing those names on trading. The Nekoringo Core (owned by `nekoringo-iac/apps/komodo`) declares two Servers: `nekoringo1` (218.33.108.254, Core + local Periphery, control plane and edge services) and `nekoringo2` (160.191.41.242, standalone Periphery for production and test workloads; IaC marks its onboarding complete). These are never homelab Servers. A local `nekoringo` profile is registered but currently returns 401; repair it through `skill://km-endpoints` and trust Server names/status only after a fresh `km -p nekoringo ls servers` succeeds.
+Core selection and `-p` are in `../SKILL.md`; profile problems are in `endpoints.md`. Server and container names are scoped to their Core. Homelab's `Local` is moat-app1 / VM 110 and `browser` is VM 104; rediscover rather than reusing those names on another Core. The Nekoringo Core's Servers `nekoringo1` and `nekoringo2` are never homelab Servers. Trust Server names and status only after a fresh `ls servers` (or REST `ListServers`) on that Core.
 
 ## Locate the container and its parent
 
@@ -27,7 +21,7 @@ km -p "$core" ls stacks -a -s "$server" -f json
 
 `ps` without `-a` hides stopped containers. `inspect` without `-s` can print multiple same-named containers across hosts. State (`-u`) and mounts (`-m`) are useful first reads; full inspect or config (`-c`) may contain environment secrets, so keep sensitive output out of reports.
 
-Use container labels/config and the Stack inventory to establish its parent project and service. A raw container is not the source of its Compose declaration. For image/config rollout, service-level deploy or normal project restart, use `skill://km-stack` instead. A legacy Deployment is a separate Komodo resource, not a reason to create new Deployments in place of Stacks.
+Use container labels/config and the Stack inventory to establish its parent project and service. A raw container is not the source of its Compose declaration. For image/config rollout, service-level deploy or normal project restart, use `stack.md` instead. A legacy Deployment is a separate Komodo resource, not a reason to create new Deployments in place of Stacks.
 
 ## Perform only the intended container operation
 
@@ -40,7 +34,7 @@ km -p "$core" x stop-container "$server" "$container"
 km -p "$core" x destroy-container "$server" "$container"
 ```
 
-Use raw operations for an explicitly bounded container intervention, not to bypass the parent's declaration workflow. Before stop/destroy, establish downtime and mount/writable-layer impact. Destroy requires explicit authorization and does **not** remove the parent Stack record; a later Stack deploy can recreate the container. Clean project teardown belongs to `km-stack`.
+Use raw operations for an explicitly bounded container intervention, not to bypass the parent's declaration workflow. Before stop/destroy, establish downtime and mount/writable-layer impact. Destroy requires explicit authorization and does **not** remove the parent Stack record; a later Stack deploy can recreate the container. Clean project teardown belongs to `stack.md`.
 
 Whole-server operations affect unrelated projects and shared dependencies. Do not substitute them for a single-container request; establish all affected workloads and explicit host-wide authorization before using that command family.
 

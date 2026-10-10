@@ -40,7 +40,7 @@ The helper resolves the password in order:
 2. Nonempty `TF_VAR_zero721_admin_password` from an already-loaded IaC environment.
 3. SOPS-decrypt `pve-vctcn/_shared/secrets/secrets.yml` and select the nonempty string `zero721_admin_password` with Mike Farah `yq`.
 
-It does not use Keychain or prompt for credentials. Follow `credentials-belong-in-iac`: resolve the existing local IaC/age setup without exposing plaintext; do not ask the user to paste a password, print decrypted files, or create a second secret store.
+It does not use Keychain or prompt for credentials. Follow `credentials-from-owning-source`: resolve the existing local age/SOPS setup without exposing plaintext; do not ask the user to paste a password, print decrypted files, or create a second secret store.
 
 | Variable | Default / purpose |
 |---|---|
@@ -70,4 +70,4 @@ Transcoding, deduplication, and key format are server behavior, not promises enf
 
 ## Service boundary
 
-This skill uploads evidence; it does not administer 0721. The 0721 compose declaration and admin-rotation procedure live in `pve-vctcn/apps/vctcn-app1/`. The `img.237575.xyz` proxy host is manual NPM state on CT 171; `apps/vctcn-app1/scripts/setup-npm-proxies.sh` is only the out-of-band helper, not a workspace-managed resource. Use `iac-projects` and `iac-issue-routing` before infrastructure changes.
+This skill uploads evidence; it does not administer 0721. Where the 0721 deployment is declared and how its admin is rotated: read `pve-vctcn/apps/vctcn-app1/` for the current state. The `img.237575.xyz` proxy host is manual NPM state on CT 171; `apps/vctcn-app1/scripts/setup-npm-proxies.sh` is only the out-of-band helper, not a workspace-managed resource. Infrastructure changes go through `iac-projects`; app deployment changes through `km`.

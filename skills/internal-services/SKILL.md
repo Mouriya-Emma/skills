@@ -1,33 +1,46 @@
 ---
 name: internal-services
-description: Inventory and count internal services across homelab-tf and pve-vctcn, including workload/Core ownership and skill coverage gaps. Recompute active totals from current sources; use service-specific skills only when the task becomes administration.
+description: Inventory and count internal services across homelab-tf, pve-vctcn and both Komodo Cores (what runs where, who declares it, which are retired), and refresh this skill when the inventory guidance goes stale. Recompute totals from live sources; operating a service belongs to its own skill.
 ---
 
 # Internal services inventory
 
-Use this skill to answer inventory questions like “内网有多少服务”, “what runs where?”, or “which skills are missing for my apps?”. This is an overview skill: do **not** invoke service-specific skills such as `dns-check`, `km-stack`, `km-gitops`, `keycloak`, or `local-cicd` just to count or describe services.
-
-For implementation or operations on a specific service, route to the owning repo/skill after answering the inventory question.
+Use this skill for inventory questions such as “内网有多少服务”, “what runs where?”, “which skills are missing for my apps?”, and for refreshing this skill. It is an overview: do not load operational skills (`km`, `keycloak`, `dns-check`, `local-cicd`) just to count or describe services. Route to them once the question becomes operating or changing a service.
 
 ## Counting policy
 
-Never answer from a stored numeric total. Recompute on each request because workload repos and ResourceSync can change without this skill changing.
+Never answer from a stored total. Recompute on each request; workload repos and ResourceSyncs change without this skill changing.
 
-1. Read TF-managed CT/VM declarations from the owning IaC repos.
-2. Read live homelab Stack inventory with `km -p homelab ls stacks -a -f json`; count only entries whose runtime state is active when the user asks for active services.
-3. Read the trading Core separately with `km -p trading ls stacks -a -f json` and `km -p trading ls syncs -f json` when trading workloads are in scope.
-4. Count vctcn top-level app/workload services from the VM-backed `apps/*/main.tf` workspaces plus live placement when available; `apps/dns/` manages Cloudflare records and is not a service.
-5. State the timestamp, granularity, included/excluded inactive workloads, and the concrete names behind the total.
+1. Read OpenTofu CT/VM declarations from the IaC repos.
+2. Read the homelab Core's Stacks and ResourceSyncs, and the trading Core's when trading is in scope (commands below).
+3. Count vctcn services from the VM-backed `apps/*/main.tf` workspaces plus live placement, and add Stacks on vctcn Servers (`ct171`, `vctcn-mail`) from the homelab Core. `apps/dns/` manages Cloudflare records and is not a service.
+4. State the timestamp, granularity, which inactive or retired items are excluded, and the concrete names behind the total.
 
-Count active top-level services/workloads, not backing containers. Do not count Postgres, registry `docker_auth`, NPM proxy-host rows, CoreDNS/Unbound/Kea/dns-info sub-daemons, or `app01` rollback residue as separate top-level services. Count `moat-browser` once even though it has a VM and several containers. Keycloak belongs to `pve-vctcn` (VM 180); if a same-named homelab record ever appears, report it separately as legacy, not as the primary service.
+Count active top-level services, not backing containers. Do not count Postgres sidecars, registry `docker_auth`, NPM proxy-host rows or CoreDNS/Unbound/Kea/dns-info sub-daemons as separate services. Count `moat-browser` once although it has a VM and several containers.
 
-## Authority and placement guide
+Retired services are reported in a separate “retired” list and never counted as active, even when their Stack records, volumes or disks remain. Retention does not imply a cleanup or recovery task.
+
+## Placement guide
+
+Use this to locate declarations, not as proof a guest is running.
 
 ### homelab-tf
 
-Use the following placement map to locate declarations, not as proof that each guest is still present or active: DNS/DHCP (CT 312), Step-CA (CT 313), OpenBao (CT 314, retired/stopped), Komodo Core + homelab-apps Stacks (VM 110 moat-app1), agent-runtime (VM 103), browser host (VM 104), nanoclaw (VM 106, retired/stopped), app01 (VM 102, retired/stopped), moat workload hosts (VM 111–113, retired/stopped), and trading-agent with the independent trading Core (VM 130). Static CT/PVE identities come from `network/identities.yaml`.
+DNS/DHCP (CT 312), Step-CA (CT 313), the homelab Komodo Core and its `Local` Server (VM 110 moat-app1), the browser host (VM 104), and trading-agent with the independent trading Core (VM 130). Retired and stopped: OpenBao (CT 314), app01 (VM 102), agent-runtime (VM 103), nanoclaw (VM 106), moat workload hosts (VM 111–113). Static CT/PVE identities come from `network/identities.yaml`.
 
-Application Stack names, activity, target hosts, and declaration repos must be derived live:
+### pve-vctcn
+
+Read current workspaces rather than a stored list:
+
+- VM 180 `vctcn-app1`: Keycloak and the other compose services in its workspace. Mattermost and Forgejo there are retired (pve-vctcn#286); their volumes and Keycloak identities are retained.
+- VM 181 `vctcn-runner`: GARM controller and resident LXD runner host. Overflow runners run as edge Incus instances on the operator's laptop; count GARM once and do not count the laptop as a service host.
+- VM 182 `vctcn-registry`: registry and its auth helper (count the registry once).
+- VM 183 `vctcn-mail`: the `mail` Stack on the homelab Core (Server `vctcn-mail`).
+- CT 171: NPM and 3proxy Stacks on the homelab Core (Server `ct171`). NPM is ingress infrastructure; count it only when the requested granularity includes control-plane services.
+
+### Komodo Stacks
+
+Stack names, state, target Server and declaring repo come from live reads only:
 
 ```bash
 km -p homelab ls stacks -a -f json
@@ -36,83 +49,36 @@ km -p trading ls stacks -a -f json
 km -p trading ls syncs -f json
 ```
 
-For a repo-backed Stack, the `repo`/`branch` fields identify its authority. Workload `file_contents` authority is retired (all current Stacks are repo-backed); a no-repo `file_contents=true` record is stale drift to report, not an accepted exception or a template. A stopped VM or down/stopped Stack is reported separately and excluded from an "active" count unless the user requests all declared services.
-
-### pve-vctcn
-
-Read current workspaces rather than a stored count:
-
-- VM 180 `vctcn-app1`: primary Keycloak and any other compose services currently declared in its workspace. Mattermost and Forgejo are retired there (pve-vctcn#286): their data volumes and Keycloak identities are retained, but they are not active services.
-- VM 181 `vctcn-runner`: GARM controller and resident LXD runner host. Overflow runners run as edge Incus instances on the operator's laptop (outside the IaC-managed hosts); count GARM once and do not count the laptop as a service host.
-- VM 182 `vctcn-registry`: registry plus its auth helper (count the registry once).
-- Manual CT 171 NPM is supporting public-ingress infrastructure; mention it but do not count it as an app unless the requested granularity includes control-plane services.
+If the local km CLI is newer than the Core and `ls stacks` fails with `ERROR: 200 OK`, use the version-matched REST reads in the `km` skill (`references/api.md`). For a repo-backed Stack, `repo`/`branch` identify its declaring workload repo. A Stack with an empty repo and non-empty `file_contents` is not repo-declared; report it as such. A stopped VM or down/stopped Stack is reported separately and excluded from an active count unless the user asks for all declared services.
 
 ## Reporting format
 
-Return a compact table grouped by owning repo with service name, active/inactive/unknown state, placement, declaration authority, and evidence command/path. Then give the computed total and explicit exclusions. If a live source is unavailable, distinguish declared inventory from confirmed-active inventory; do not present unknown state as active or silently omit that Core.
+Return a compact table grouped by repo or Core: service, active/inactive/retired/unknown, placement, declaring source, evidence command or path. Then the computed total and the explicit exclusions. If a live source is unavailable, separate declared inventory from confirmed-active inventory; do not present unknown as active or silently omit a Core.
 
 ## Skill coverage
 
-Existing relevant skills:
+Existing: `km` (all Komodo operations and app onboarding), `iac-projects` (IaC repo routing), `local-cicd` (GARM, registry, build artifacts), `keycloak` (SSO integration and inspection), `dns-check` (LAN DNS discoverability, not full DNS operations), `homelab-trading` (trading workloads), `opend-client`, `image-share`.
 
-- `dns-check`: DNS discoverability/registration checks for new LAN hosts and failed DNS resolution. This is not a full DNS service-operations skill.
-- `km-stack` / `km-gitops`: live Stack operations and ResourceSync inspection/execution; repo-backed declarations remain in the owning workload repo.
-- `local-cicd`: delivery tutorial for GARM, image/registry, app-level deploy, plugin releases, ResourceSync, and E2E-only workflows; not every service uses the registry/Komodo shape.
-- `iac-projects`: repo routing and IaC boundary skill.
-- `keycloak`: SSO integration and safe Keycloak inspection. Global inventory/count questions stay here.
+Without a dedicated skill: registry, Memos, Homepage, moat-browser, Step-CA, full DNS service operations.
 
-Missing or incomplete dedicated app/service skills:
+## Sources
 
-- registry;
-- Memos;
-- Homepage;
-- moat-browser;
-- fulcrum;
-- Step-CA;
-- full DNS service operations beyond `dns-check`.
+Verify current state from these before a recommendation the user may act on; discover additions rather than treating the list as complete.
 
-## Authoritative sources
+homelab-tf (`/Users/mouriya/Ext/code/homelab-tf`): `AGENTS.md`, `Makefile` (workspace list), workspace `main.tf` with `vms/*.yaml` and `network/cts/*.yaml`, `network/identities.yaml`, `_shared/ansible/inventory.yml`, `.gitmodules`.
 
-Before making a recommendation that the user may act on, verify current state from these sources.
+pve-vctcn (`/Users/mouriya/Ext/code/pve-vctcn`): `AGENTS.md`, `apps/*/{main.tf,README.md,variables.tf}`, the compose templates under `apps/*/templates/`.
 
-homelab-tf:
+`homelab-tf/docs/iac-drift-investigation/*` is historical incident evidence, not current inventory; it may hold stale placement or sensitive details.
 
-- `/Users/mouriya/Ext/code/homelab-tf/AGENTS.md`
-- `/Users/mouriya/Ext/code/homelab-tf/Makefile`
-- `/Users/mouriya/Ext/code/homelab-tf/network/main.tf`
-- `/Users/mouriya/Ext/code/homelab-tf/network/identities.yaml`
-- `/Users/mouriya/Ext/code/homelab-tf/network/cts/312.yaml`
-- `/Users/mouriya/Ext/code/homelab-tf/network/cts/313.yaml`
-- `/Users/mouriya/Ext/code/homelab-tf/network/cts/314.yaml`
-- `/Users/mouriya/Ext/code/homelab-tf/apps/main.tf`
-- `/Users/mouriya/Ext/code/homelab-tf/apps/vms/110.yaml`
-- `/Users/mouriya/Ext/code/homelab-tf/paas/main.tf`
-- `/Users/mouriya/Ext/code/homelab-tf/paas/vms/103.yaml`
-- `/Users/mouriya/Ext/code/homelab-tf/browser/main.tf`
-- `/Users/mouriya/Ext/code/homelab-tf/browser/vms/104.yaml`
-- `/Users/mouriya/Ext/code/homelab-tf/workstation/main.tf`
-- `/Users/mouriya/Ext/code/homelab-tf/workstation/vms/106.yaml`
-- `/Users/mouriya/Ext/code/homelab-tf/moat/main.tf`
-- `/Users/mouriya/Ext/code/homelab-tf/moat/vms/111.yaml`
-- `/Users/mouriya/Ext/code/homelab-tf/moat/vms/112.yaml`
-- `/Users/mouriya/Ext/code/homelab-tf/moat/vms/113.yaml`
-- `/Users/mouriya/Ext/code/homelab-tf/trading/main.tf`
-- `/Users/mouriya/Ext/code/homelab-tf/trading/vms/130.yaml`
-- `/Users/mouriya/Ext/code/homelab-tf/_shared/ansible/inventory.yml`
+## Refreshing this skill
 
-pve-vctcn:
+This skill's source is `skills/internal-services/SKILL.md` in `Mouriya-Emma/skills` (local checkout `/Users/mouriya/Ext/code/skills`); installed copies under `~/.agents/skills` and `~/.claude/skills` are deployment artifacts, never editing targets.
 
-- `/Users/mouriya/Ext/code/pve-vctcn/AGENTS.md`
-- `/Users/mouriya/Ext/code/pve-vctcn/apps/vctcn-app1/main.tf`
-- `/Users/mouriya/Ext/code/pve-vctcn/apps/vctcn-app1/README.md`
-- `/Users/mouriya/Ext/code/pve-vctcn/apps/runner/main.tf`
-- `/Users/mouriya/Ext/code/pve-vctcn/apps/runner/README.md`
-- `/Users/mouriya/Ext/code/pve-vctcn/apps/runner/variables.tf`
-- `/Users/mouriya/Ext/code/pve-vctcn/apps/registry/main.tf`
-- `/Users/mouriya/Ext/code/pve-vctcn/apps/registry/README.md`
+1. In the checkout, `git fetch` and work on current `origin/main`; read its `AGENTS.md`. Preserve any existing uncommitted work.
+2. Collect current evidence from the sources above and both Cores' live reads. Initialize only the submodules whose detail is needed; report unavailable evidence as unknown.
+3. Recompute with the counting policy into a named list; reconcile top-level services versus helpers, homelab versus vctcn placement, retired items, duplicate names, declaring sources, and missing or stale skills.
+4. Replace stale prose directly; do not append contradictory notes or store a numeric total. Keep operational runbooks in their own skills; if another skill is stale, fix it in the same checkout.
+5. Deliver as the repo's `AGENTS.md` prescribes (direct commit to `main`, push), then deploy only the changed skills with `npx skills update <name> --global`. Confirm `diff -r skills/<name> ~/.agents/skills/<name>` prints nothing and `~/.claude/skills/<name>` resolves to `~/.agents/skills/<name>`.
 
-Do not treat `/Users/mouriya/Ext/code/homelab-tf/docs/iac-drift-investigation/*` as current inventory authority. Those docs are historical drift/incident evidence and may contain stale placement, stale IPs, or sensitive operational details.
-
-## When the answer turns into IaC work
-
-Placement, VM/CT, DNS/NAT/storage/ports, migration, or infrastructure credential changes leave inventory scope. Use `iac-projects` for ownership and `iac-issue-routing` for execution context. To refresh this signpost from current evidence, use `update-internal-services`.
+When the evidence calls for host, network, storage or Komodo-installation changes, use `iac-projects`; for app changes, use `km`. A refresh does not itself authorize those changes.

@@ -1,6 +1,6 @@
 ---
 name: keycloak
-description: Guide vctcn-owned Keycloak SSO/OIDC/SAML integration, realms, clients, users, and protocol mappers. Includes read-only Admin REST inspection; durable changes are IaC-first. Use internal-services for global inventory.
+description: Guide vctcn-owned Keycloak SSO/OIDC/SAML integration, realms, clients, users, and protocol mappers. Includes read-only Admin REST inspection. Keycloak stays in IaC because its realm/client/user configuration is applied after deploy; durable changes go through the pve-vctcn workspace. Use internal-services for global inventory.
 allowed-tools: Bash, Read, Write, Edit, Grep, Glob, WebFetch, mcp__ssh-manager__ssh_execute
 ---
 
@@ -26,7 +26,7 @@ A similarly named realm or service record elsewhere does not establish ownership
 
 ## Durable integration workflow
 
-Changes to clients, redirects, realm settings, users, mappers, or IaC-managed secrets follow `iac-projects` and `iac-issue-routing`. Load `pve-vctcn/AGENTS.md` and its rules before implementation; external app agents supply the integration contract rather than editing IaC from app context. Execution-ready handoffs go to an issue in the owning IaC repo with explicit login/token verification.
+Keycloak is the reference case of an app that stays in IaC under the placement criterion in `personal-infra-routing`: its realm, client, user and mapper configuration is applied after the containers start, through the OpenTofu Keycloak provider. Changes to clients, redirects, realm settings, users, mappers, or their secrets therefore go through the pve-vctcn workspace (`iac-projects`). Load `pve-vctcn/AGENTS.md` and its rules before implementation; external app agents supply the integration contract rather than editing IaC from app context. Execution-ready handoffs go to an issue in the IaC repo with explicit login/token verification. A Keycloak client used by a km app is an external object that app consumes through `.env`; it does not move the app into IaC.
 
 1. Classify the consumer as human-facing or machine-facing.
 2. Establish its client ID, public URL, exact redirect URIs, web origins, required claims/groups/roles, and confidential/public-client requirements from the app contract.

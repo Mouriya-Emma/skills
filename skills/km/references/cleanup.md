@@ -1,26 +1,20 @@
----
-name: km-cleanup
-description: Reclaim Docker disk on a Komodo Periphery host with scoped prune/delete operations. Use for disk-full, unused images/build caches, networks or volumes; inspect dependencies and obtain destructive-impact authorization before removal.
-allowed-tools: Bash, Read
----
-
 # Docker cleanup through Komodo
 
 Every prune/delete here is destructive. Establish the exact Core, Server and impact, then obtain explicit authorization before execution. Do not treat a generic “disk full” report as permission to delete volumes.
 
-Select the Core using `skill://container-management`; profile recovery belongs to `skill://km-endpoints`.
+Core selection is in `../SKILL.md`; profile recovery is in `endpoints.md`.
 
 ## Inspect what occupies the host
 
 ```bash
-core=homelab   # the Core selected via container-management (e.g. trading for trading-local)
+core=homelab   # the Core selected in ../SKILL.md (e.g. trading for trading-local)
 km -p "$core" ls servers
 # Set server from that inventory.
 km -p "$core" ps -a -s "$server"
 km -p "$core" ls stacks -a -s "$server" -f json
 ```
 
-Inspect mounts for relevant containers with `km -p "$core" inspect "$container" -s "$server" -m`. Include stopped containers and down Stacks: data and rollback images may still be needed. Use the Komodo Server UI/API's Docker artifact and disk-usage views to establish actual space use, references and cleanup candidates; a container listing alone is not a volume/image inventory. For a missing CLI read use `skill://km-api`, not guessed commands or direct host mutation.
+Inspect mounts for relevant containers with `km -p "$core" inspect "$container" -s "$server" -m`. Include stopped containers and down Stacks: data and rollback images may still be needed. Use the Komodo Server UI/API's Docker artifact and disk-usage views to establish actual space use, references and cleanup candidates; a container listing alone is not a volume/image inventory. For a missing CLI read use `api.md`, not guessed commands or direct host mutation.
 
 Record before-state disk usage, candidate names and known owners. For volumes, establish the data owner, recoverable backup and restore path. “Unreferenced by a container” does not mean “unneeded by a stopped/removed workload”. If ownership or backups cannot be established, do not delete that data.
 

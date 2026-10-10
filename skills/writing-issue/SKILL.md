@@ -104,7 +104,7 @@ umbrella child 的继承快照、使用场景、baseline、不应残留等扩展
 
 ## 归属、发布与修订
 
-1. 按 driver 选 home repo：IaC 驱动归 IaC repo，app 驱动归 app repo。
+1. 按要改的对象选 home repo：对象由哪个 repo 声明就开在哪个 repo。app 的部署归 km 还是 IaC，按 `personal-infra-routing` 规则的归属判据定，不按 driver 来自哪里定。
 2. 先定 parent。通过完整本地 payload 确认已有 parent 仍合适；新层级先建 parent 再建 child。一个 child 一个 issue parent，另一条线用散文引用。跨 repo（同 org）可连接，无需复制任务。
 3. API 操作及失败恢复见 [sub-issue-api.md](references/sub-issue-api.md)。PR 只用 closing keyword 连接 issue，不参与 sub-issue 边。
 4. 发布前检查：原子 Why 与来源、症状到原因的证据链、责任定位与必要决策、无未决项或指向未来结论的依赖、具体业务输入、外部约束与继承契约、逐条结果覆盖、范围边界、可跑命令和真实风险维度、延期验证 owner、对抗捷径，以及 repo/preset 必需段。起草中的 Source bundle 和内部脚手架不落 GitHub。

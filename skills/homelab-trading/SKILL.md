@@ -1,6 +1,6 @@
 ---
 name: homelab-trading
-description: Workload-only routing for VM 130 trading-agent stacks, moomoo OpenD, trading Komodo declarations, and homelab-trading secrets/sync workflow. Host provisioning, SR-IOV, DNS, mesh, registry, and Core/ResourceSync provisioning belong to IaC; existing stack operations use km-* with -p trading.
+description: Workload routing for VM 130 trading-agent stacks, moomoo OpenD, the trading Komodo Core's declarations, and the homelab-trading secrets/sync workflow. VM 130, SR-IOV, DNS, mesh, registry and the trading Komodo installation belong to IaC (iac-projects); Stack operations use the km skill with -p trading.
 ---
 
 # homelab-trading — workload-only signpost
@@ -16,7 +16,7 @@ description: Workload-only routing for VM 130 trading-agent stacks, moomoo OpenD
 | Repo-root `secrets.yml` | SOPS+age, flat top-level keys, single runtime secret source; no per-stack secrets file or committed populated `.env` |
 | `.github/workflows/sync-to-komodo.yml` | Routes secrets into Komodo and triggers `RunSync`; individual custom-image stacks may have a dedicated build workflow |
 
-The **ResourceSync object** that points at `komodo/syncs/` is provisioned by IaC; its **declaration contents** belong here. `trading-agent` is the VM name, not a Compose service name.
+This repo owns its trading ResourceSync object as well as the declarations it points at (authority table in the `km` skill); read `km -p trading ls syncs -f json` for the live object. `trading-agent` is the VM name, not a Compose service name.
 
 Read repo-local `.claude/rules/{topology,dev-conventions,secrets-handling,deploy-plane,pr-evidence}.md`. For cross-stack conventions use `.claude/skills/stack-baseline/`; OpenD deployment/SMS/account/restart specifics use `.claude/skills/opend/`. Client quote connections use global `opend-client`.
 
@@ -25,16 +25,13 @@ Read repo-local `.claude/rules/{topology,dev-conventions,secrets-handling,deploy
 | Task | Route |
 |---|---|
 | VM 130 lifecycle, sizing, disks, SR-IOV, cloud-init | `iac-projects`, `homelab-tf/trading/` |
-| Trading Core install, Periphery, host bootstrap | `iac-projects`, `homelab-tf` Ansible |
-| ResourceSync object provisioning | `homelab-tf/komodo/roles/komodo-stacks-gitsource` via IaC workflow |
+| Trading Komodo Core install, Periphery, host bootstrap | `iac-projects`, `homelab-tf` Ansible |
 | DNS / NetBird enrollment | `iac-projects`, current homelab DNS/VM authority |
 | `registry.237575.xyz` | `pve-vctcn/apps/registry` |
 | GARM controller (VM 181) and its resident/edge runners | `pve-vctcn/apps/runner`, `local-cicd` |
-| Core endpoint/auth/profile lookup | `km-endpoints` |
-| Existing Stack deploy/restart/stop/list | `km-stack` with `-p trading` |
-| Container ps/inspect/restart | `km-container` with `-p trading` |
+| Core connection/profile, Stack deploy/restart/stop/list, container ps/inspect/restart, REST reads | `km` skill with `-p trading` |
 
-Apply `iac-issue-routing` to work crossing those boundaries. Workload changes use this repo's issue/PR; infrastructure work uses its owning repo. Routine version rollout through the existing CD path is not an IaC task.
+Work that reaches the VM, network, DNS or the Komodo installation goes to the IaC repo through `iac-projects`. Workload changes use this repo's issue/PR. Routine version rollout through this repo's CD path is not an IaC task.
 
 ## Connection and secret invariants
 
@@ -53,7 +50,7 @@ Read `deploy-plane.md` for exact current commands and authorization before apply
 | Compose/Stack structure, new or deleted stack, or structure plus secret change | Normal repo PR, then main-branch sync workflow. Update compose, declarations, and SOPS source together as applicable; CI routes Variables and runs ResourceSync. |
 | SOPS-only durable value change | Update repo-root `secrets.yml`; the `sync-to-komodo.yml` workflow triggers on it, upserts the Variable/secret and runs ResourceSync. Follow the repo's branch policy for PR vs direct-to-main. |
 | Only a Variable value during iteration | `km -p trading update variable` followed by `execute deploy-stack`; the standing repo rule avoids a CI run solely for that runtime iteration. Reconcile the authoritative SOPS source for durable persistence: later CI can overwrite an unreconciled runtime value. |
-| Short-lived alternate image/args smoke | Authorized `UpdateStack` inline `file_contents` override via `km-api` (REST `/write`), then `km -p trading execute deploy-stack <stack>`; next RunSync restores repo/branch/file paths and git-sourced compose. Make persistent changes in the repo, not inline state. |
+| Short-lived alternate image/args smoke | Authorized `UpdateStack` inline `file_contents` override through the `km` skill's REST reference (`references/api.md`, `/write`), then `km -p trading execute deploy-stack <stack>`; next RunSync restores repo/branch/file paths and git-sourced compose. Make persistent changes in the repo, not inline state. |
 | Force redeploy without config change | `km -p trading execute deploy-stack <stack>`; no structural edit needed. |
 
 After any mode, inspect the terminal deployment result and actual workload behavior on VM 130 using `pr-evidence.md`. A successful `RunSync`/DeployStack is control-plane evidence, not proof the app works. Use `local-cicd` for delivery-shape details rather than adding another deployment implementation here.

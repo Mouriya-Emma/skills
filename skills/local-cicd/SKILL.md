@@ -1,6 +1,6 @@
 ---
 name: local-cicd
-description: Choose and implement self-hosted delivery through GARM (resident LXD on VM 181 plus edge Incus overflow), private registry, app-level deploy, release artifact consumption, or Komodo ResourceSync. Covers pool onboarding, mesh-aware CI, concurrency for shared delivery state, artifact authority, secrets sync, and evidence by delivery type.
+description: Self-hosted CI on GARM (resident LXD on VM 181 plus edge Incus overflow) and the private registry registry.237575.xyz. Use to onboard a repo to GARM pools, write mesh-aware workflows, build and push images, publish or consume release artifacts, handle concurrency on shared delivery state, and pick evidence per delivery shape. Deploying to Komodo itself is in the km skill.
 ---
 
 # local-cicd: self-hosted CI/CD 体系
@@ -30,7 +30,7 @@ Static lists in this skill are examples/patterns. Treat live GARM + current repo
 | Source repo | App/plugin/sync code, workflow YAML, artifact naming, app-level deploy trigger. |
 | Runner seam | One GARM controller on VM 181 `vctcn-runner`, pool state in GARM sqlite (not TF). Each onboarded repo has a resident `lxd_local` pool (LXD on VM 181, mesh via VM 181's NetBird peer) and an edge `incus_edge` pool (Incus on the operator's CachyOS laptop, mesh via that laptop's peer) with the same base labels; a common-label job prefers resident and overflows to edge. An edge pool may additionally carry `cachyos` (pve-vctcn#300), which makes jobs requiring it edge-only. See `pve-vctcn/apps/runner/README.md`. |
 | Private registry | VM 182 `vctcn-registry`, `registry.237575.xyz`, Keycloak `registry` realm, `sa-registry`; maintained by `pve-vctcn/apps/registry`. |
-| Homelab deploy | `homelab-tf` owns Core/Periphery, ResourceSync provisioning, VMs/CTs, DNS/mesh/storage; workload repos own repo-backed Stack contents and secrets. |
+| Komodo deploy | Workload repo declarations, webhook and secret workflow, app onboarding: `km` skill. Komodo installation, registry pull account and Core listener ingress: the IaC repo that installs Komodo (`iac-projects`). |
 | vctcn deploy/edge | VM 180 Keycloak, VM 181 runner, VM 182 registry, NPM/DNS/edge under `pve-vctcn`. |
 
 ## Decide the CI/CD shape by artifact type
@@ -52,7 +52,7 @@ Do not rebuild an executable in Docker after its release workflow already compil
 
 ### A. Image service consumed by Komodo or a host
 
-Use for services like `moat-browser`, `fulcrum`, and the `runner-canary` sample.
+Use for services like `moat-browser`, `paseo`, and the `runner-canary` sample.
 
 ```mermaid
 flowchart TD
@@ -77,7 +77,7 @@ Implementation expectations:
 - Concurrency: a repo has capacity for at most one resident and one edge job at a time, and the edge half is conditional: the availability gate must have the edge pool enabled, and the edge Incus project allows only **two instances across all repositories**. Every job that writes a shared object (Komodo Stack or Variable, floating image tag, release asset, branch) uses a job-level `concurrency` group named after that object, identical across all workflows that write it, with `cancel-in-progress: false`. Use `queue: max` when each run carries its own intent (a release tag, a version to deploy) that must not be dropped; a workflow that only syncs the current default branch may keep the default single pending run, since the newer run supersedes the older one (mouriya-s-lab/garm-edge-incus#15). actionlint 1.7.12 does not know `queue`; suppress only that diagnostic.
 - Registry push: follow [Private registry](#private-registry-registry237575xyz) below. Naming the token action is not enough; the repo must be onboarded to the registry secret first.
 - Push immutable tags; add convenience tags only when appropriate (`short-sha`, `latest` on main, release tag, PR tag).
-- For Komodo delivery, CI may update bounded version/env fields and invoke deployment. Repo-backed durable Stack contents and workload secrets follow Shape D; host storage, mesh, Core provisioning, placement and the target Core's registry account remain IaC responsibilities (see [Pull side](#pull-side-komodo-deploy)).
+- Deploying to Komodo: after the image is pushed, the release updates the image reference in the workload repo and pushes; the workload repo's webhook makes km deploy it (`km` skill). Release CI does not edit Komodo resources directly and does not touch host storage, mesh, placement or the target Core's registry account.
 - If the service has HTTP semantics, prefer `/healthz` and `/version`; if not, use an equivalent runtime smoke.
 
 Canonical sample docs:
@@ -87,62 +87,34 @@ Canonical sample docs:
 - `/Users/mouriya/Ext/code/runner-canary/komodo/syncs/stacks.toml`
 - `/Users/mouriya/Ext/code/runner-canary/stacks/runner-canary/compose.yaml`
 
-### B. Bounded app-level deploy without registry publish
-
-Use when the target VM builds or runs from rsynced artifacts and the runner only performs a narrow delivery action (example: `nanoclaw`).
-
-```mermaid
-flowchart LR
-    build[Project test/build/package on GARM] -->|verify tooling| transfer[rsync/scp via narrow deploy user]
-    transfer -->|allowed command only| restart[Bounded restart or target build]
-    restart -->|observe target| smoke[Service state and app smoke]
-```
-
-Rules:
-
-- Use a narrow deploy user/key and exact allowed sudo commands.
-- Do not mutate host placement, DNS, broad packages, storage, or secrets from the app workflow.
-- Target-side Docker build is acceptable when that is the app contract; do not force registry publishing just because GARM is involved.
-- Evidence is target-side service active/running plus relevant app smoke, not registry pullback.
-
-### C. Release artifact consumed through the owning deployment workflow
+### B. Release artifact consumed through the owning deployment workflow
 
 Use when an existing authoritative build publishes a release artifact and checksum for a separate consumer.
 
 - Keep that build as the sole compiler; the consumer verifies and uses the published bytes, without rebuilding the same version.
 - Choose the consumer and deployment workflow from the actual project contract; this shape does not imply a particular live workload or deployment endpoint.
-- Do not force Docker registry publication or Komodo DeployStack. Use IaC only for the scope that actually requires it; normal artifact/version delivery stays with the owning workflow.
+- Do not force Docker registry publication or Komodo DeployStack. Normal artifact/version delivery stays with the owning deployment workflow.
 - Evidence is the published artifact and checksum plus consumer verification; when deployment is in scope, its owner supplies deployment and runtime evidence.
 
-### D. Komodo ResourceSync / secrets-sync repo
+### C. Komodo workload repo
 
-Use for repo-backed homelab workloads such as `homelab-apps`, `homelab-moat`, `moat-browser-deploy`, `runner-canary`, and `homelab-trading`, where the owning repo owns Stack declarations, release state, and workload secrets but not VM/Core provisioning.
+Use for repos that declare Komodo Stacks (`komodo/syncs/` + `stacks/`), such as `homelab-apps`, `moat-browser-deploy`, `runner-canary` and `homelab-trading`. The repo layout, its ResourceSync, the GitHub webhook to km and the secret workflow are defined in the `km` skill's onboarding section; this skill only covers the CI side of that workflow.
 
-```mermaid
-flowchart TD
-    tools[GARM job with sops/age/yq/jq/curl] -->|decrypt source without logging secrets| source[Repo-root SOPS]
-    source -->|validate declarations| declarations[komodo/syncs and stacks]
-    declarations -->|bounded upserts| config[Variables and ResourceSync webhook_secret]
-    config -->|RunSync and wait| terminal[Terminal sync result]
-    terminal -->|read back and smoke| runtime[Declared Stack and actual workload]
-    runtime -->|remove transient key material| cleanup[Job cleanup]
-```
+CI rules for the secret workflow:
 
-Rules:
+- It runs on a GARM pool that has `sops`, `yq`, `curl` and `jq` (requested through `--extra-packages`, see below), because it needs mesh access to the Core.
+- Decrypt without logging values; write only the Variables the declarations reference; remove the age key and plaintext in an `always()` cleanup step.
+- One job-level `concurrency` group per ResourceSync, `cancel-in-progress: false`.
+- Evidence is the Variable/ResourceSync API responses, the terminal `RunSync` result, the live Stack repo/branch/file path, and a real runtime smoke of the affected app.
 
-- New Stack compose authority belongs in the owning workload repo (`komodo/syncs/` + `stacks/`), not in `homelab-tf/komodo` file_contents templates.
-- No repo-level image build unless an individual stack introduces a custom image contract.
-- No VM/Core/Periphery provisioning in the workload repo; that remains in `homelab-tf`.
-- Evidence is Variables/ResourceSync API success, terminal `RunSync`, live Stack repo/branch/file path, and real runtime smoke.
-
-### E. GARM-only E2E / notification / runner canary
+### D. GARM-only E2E / notification / runner canary
 
 Use when the repo is not a deployed service, e.g. PR bridge E2E or runner capability checks.
 
 Rules:
 
 - GARM may be required for mesh reachability or parity with production runners.
-- No registry, Komodo, or IaC deploy evidence is required unless the workflow actually publishes/deploys something.
+- No registry or Komodo deploy evidence is required unless the workflow actually publishes/deploys something.
 - Evidence is the workflow's target behavior (notification sent, bridge template executed, toolchain check passed, canary HTTP/DNS probe passed).
 
 ## When GARM/local-cicd is mandatory
@@ -222,14 +194,14 @@ A push opens a burst of parallel connections at once (roughly one blob HEAD per 
 
 ### Pull side (Komodo deploy)
 
-Komodo Periphery never uses a CI runner's login. The target Core's IaC (`homelab-tf/komodo`, role `komodo-registry-account`) maintains a `DockerRegistryAccount` `{domain: registry.237575.xyz, username: sa-registry}` holding a client_credentials access token, re-minted every 15 minutes by the Komodo Action `refresh-registry-237575-token` (shorter than the 1800-second lifetime). The workload's Stack declaration binds it:
+Komodo Periphery never uses a CI runner's login. The target Core's Komodo installation (`homelab-tf/komodo`, role `komodo-registry-account`) maintains a `DockerRegistryAccount` `{domain: registry.237575.xyz, username: sa-registry}` holding a client_credentials access token, re-minted every 15 minutes by the Komodo Action `refresh-registry-237575-token` (shorter than the 1800-second lifetime). The workload's Stack declaration binds it:
 
 ```toml
 registry_provider = "registry.237575.xyz"
 registry_account = "sa-registry"
 ```
 
-Only the primary homelab Core has this role today. Deploying a private image to another Core (trading included) first needs that Core's IaC to provision the account and refresher. Before relying on a pull, check the account exists and the refresher Action's last run succeeded.
+Only the primary homelab Core has this account today. Deploying a private image to another Core (trading included) first needs that Core's Komodo installation to provision the account and refresher (`iac-projects`). Before relying on a pull, check the account exists and the refresher Action's last run succeeded.
 
 ### Telling failures apart
 
@@ -240,13 +212,11 @@ Only the primary homelab Core has this role today. Deploying a private image to 
 | `connection reset by peer` / EOF to the registry IP | transport, not auth; login and token issuance already succeeded | runner kind (resident vs edge); VM 182 mesh-forward backlog and listen-overflow counters (see Network path); then NPM logs |
 | Deploy pull fails, CI pull works | target Core's registry account or refresher | Core `DockerRegistryAccount`, refresher Action history, Stack `registry_account` binding |
 
-## CI/CD 与 IaC handoff
+## CI/CD 与其他 skill 的分工
 
-已接入的 workload 版本迭代默认由其 repo 的 workflow、`komodo/syncs/`、`stacks/` 完成，用 `km-stack`/`km-gitops` 操作。Image tag/digest、有界 Variables、RunSync/DeployStack 都不走 IaC。
-
-出现 host/VM/CT、DNS/mesh/ingress、根信任、GARM pool、Core provisioning，或需 IaC 落地的 secret 配置时，用 `iac-issue-routing` 分清边界并交 owning IaC repo；未决设计记录明确 blocker。
-
-Issue 只承接 CI/CD 未覆盖的工作，写清已发布的 artifact 和剩余 IaC 责任；不要让执行 agent 重跑已有自动 build/push/RunSync。
+- app 的发布与部署（镜像引用更新、Stack 声明、Variable、RunSync）归 workload repo 与 km，见 `km` skill。
+- 主机、VM/CT、DNS、mesh、公网入口、根信任、GARM pool 之外的 runner 主机、Komodo 安装，交给 `iac-projects` 定位的 IaC repo；未决设计写清 blocker。
+- 给别的 repo 开 issue 时写清已发布的 artifact 和剩余工作；不要让执行方重跑已经自动完成的 build/push/RunSync。
 
 ## Evidence matrix
 
@@ -255,9 +225,8 @@ Pick evidence by CI/CD shape:
 | Shape | Required evidence |
 |---|---|
 | Image service | artifact-authority decision; one project build; release checksum/digest match when packaging an existing artifact; Docker build; pushed immutable image; pull/inspect of the pushed digest from the runner; GARM job success; when deploy is in scope, the **target Core's** Compose Pull success for that digest and a run smoke (CI pullback does not prove the target can pull). |
-| App-level deploy | project tests/build, artifact transfer, bounded remote command output, target service active/running, app smoke. |
 | Release artifact consumption | authoritative build/release success; published artifact + checksum; consumer checksum verification; owning deployment workflow and runtime evidence when deployment is in scope. |
-| ResourceSync | SOPS decrypt/tooling check, Komodo Variable/ResourceSync API success, `RunSync` accepted/completed, stack smoke if runtime changed. |
+| Komodo workload repo | SOPS decrypt/tooling check, Variable/ResourceSync API success, `RunSync` terminal result, Stack repo/branch/file path, runtime smoke of the affected app. |
 | E2E-only/canary | Workflow success plus the behavior being tested; no synthetic registry/deploy evidence. |
 
 PR bodies still follow `writing-pr`. If app and infra are split, say exactly which repo owns each evidence layer and link the owning issue/PR.

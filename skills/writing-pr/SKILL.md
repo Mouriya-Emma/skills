@@ -37,7 +37,7 @@ PR 按 diff 性质二选一，不混用：**纯文档 PR** 用「纯文档 PR �
 
 运行强度按 `~/.claude/rules/runtime-verification-required.rule.md`：Web 用 `skill://agent-browser` 完整执行真实用户路径，核对页面、接口与持久化/下游副作用，UI 改动截图进入 PR body。首页探活、单接口 curl 或 spec 名称不能替代它。
 
-真实验证受阻时：属于本 PR 的问题先修；外部 blocker 用 `skill://writing-issue` 发布并写解除条件，确需操作员独有判断才提问。缺凭据先按全局 credentials 路由查 IaC/secret-store/tooling，不向用户索要 token。不得以 mock、stub、fake、in-memory 或单测填 Layer 4；没有证据不宣称 ready。确实无法解除的阻塞如实写 `Layer 4 阻塞——<原因> + <blocker issue 链接 / 已提出的问题>`，交 reviewer 裁决。
+真实验证受阻时：属于本 PR 的问题先修；外部 blocker 用 `skill://writing-issue` 发布并写解除条件，确需操作员独有判断才提问。缺凭据先按 `credentials-from-owning-source` 规则查拥有方的 secret store 与本机既有凭据来源，不向用户索要 token。不得以 mock、stub、fake、in-memory 或单测填 Layer 4；没有证据不宣称 ready。确实无法解除的阻塞如实写 `Layer 4 阻塞——<原因> + <blocker issue 链接 / 已提出的问题>`，交 reviewer 裁决。
 
 ## 四层证据（非纯文档 PR）
 

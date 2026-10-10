@@ -1,17 +1,10 @@
----
-name: km-endpoints
-description: >-
-  Maintain the local Komodo Core endpoint inventory and render named CLI profiles; list connections or supply credentials to km-api. No active endpoint: every km command uses -p. Use for missing profiles, new Cores, endpoint changes and concurrent Core access.
-allowed-tools: Bash, Read, Write, Edit, Glob
----
-
 # Komodo endpoint inventory
 
-This skill owns connection inventory, not service lifecycle operations. Use `skill://container-management` for those.
+This reference owns connection inventory, not service lifecycle operations (those are in `../SKILL.md` and its other references).
 
 ## Files and authority
 
-Helpers below are relative to the installed `~/.claude/skills/km-endpoints/` skill. The sole endpoint inventory is `${XDG_CONFIG_HOME:-$HOME/.config}/komodo/endpoints`, outside all skill installation directories. All three helpers use that location directly; there is no fallback inventory inside the installed package. The generated CLI config remains `~/.config/komodo/komodo.cli.toml`.
+Helpers below are relative to the installed `~/.claude/skills/km/` skill. The sole endpoint inventory is `${XDG_CONFIG_HOME:-$HOME/.config}/komodo/endpoints`, outside all skill installation directories. All three helpers use that location directly; there is no fallback inventory inside the installed package. The generated CLI config remains `~/.config/komodo/komodo.cli.toml`.
 
 | Path | Contract |
 |---|---|
@@ -20,14 +13,14 @@ Helpers below are relative to the installed `~/.claude/skills/km-endpoints/` ski
 | `bin/show.sh <name>` | Prints fixed, shell-escaped Bash `NAME`, `HOST`, `KEY`, `SECRET` assignments for one endpoint; requires Python 3.11+ and rejects invalid TOML or missing/empty/nonstring/NUL-containing required fields |
 | `bin/render-config.sh` | Sole writer of `~/.config/komodo/komodo.cli.toml`; emits one named profile per endpoint |
 
-The endpoint inventory is **not automatically synced from IaC**. Register only a Core actually declared by the owning IaC change: homelab Core inventory is in `homelab-tf`'s `komodo_core_hosts`. Resolve host and credentials from that change's authorized secret source (for example `homelab-tf/_shared/ansible/secrets.yml`), not from the user's clipboard. Do not create a speculative connection or embed secrets in Markdown/committed code. Keep the external endpoint directory private (mode `0700`, endpoint files `0600`), outside repositories and npx-managed skill payloads. Installing or updating the skill does not migrate, populate or overwrite this inventory.
+The endpoint inventory is **not automatically synced** from anywhere. Register only a Core that actually exists, from the deployment that owns it: homelab and trading Cores are installed by `homelab-tf` (`komodo_core_hosts`), the Nekoringo Core by `nekoringo-iac/apps/komodo`. Resolve host and credentials from that deployment's secret source (for example `homelab-tf/_shared/ansible/secrets.yml`), not from the user's clipboard. Do not create a speculative connection or embed secrets in Markdown/committed code. Keep the external endpoint directory private (mode `0700`, endpoint files `0600`), outside repositories and npx-managed skill payloads. Installing or updating the skill does not migrate, populate or overwrite this inventory.
 
-Known routing: `homelab` is moat-app1 / VM 110; `trading` is trading-agent / VM 130; `nekoringo` is an independent Core at `http://218.33.108.254:9120`, owned by `nekoringo-iac/apps/komodo` (its local profile currently returns 401 — the registered key is not valid for that Core). Keycloak belongs to pve-vctcn on vctcn-app1 / VM 180, not these Cores. Inventory and IaC are the authorities when adding or removing connections.
+Known routing: `homelab` is moat-app1 / VM 110; `trading` is trading-agent / VM 130; `nekoringo` is an independent Core at `http://218.33.108.254:9120`. Check each profile with a real read (`km -p <name> ls syncs`) before relying on it; a registered profile can still return 401.
 
 ## List and select
 
 ```bash
-bash ~/.claude/skills/km-endpoints/bin/list.sh
+bash ~/.claude/skills/km/bin/list.sh
 km -p homelab config
 km -p trading config
 ```
@@ -36,12 +29,12 @@ km -p trading config
 
 ## Add, change or remove a connection
 
-1. Identify the owning IaC change and its actual Core/credential source. `skill://iac-projects` covers homelab-tf and pve-vctcn; the Nekoringo Core belongs to `nekoringo-iac/apps/komodo`; for any other Core verify its deployment repository first. If the Core does not exist yet, route provisioning there rather than registering an imagined endpoint.
+1. Identify the deployment that owns the Core and its actual credential source. The `iac-projects` skill covers homelab-tf and pve-vctcn; the Nekoringo Core belongs to `nekoringo-iac/apps/komodo`; for any other Core verify its deployment repository first. If the Core does not exist yet, route provisioning there rather than registering an imagined endpoint.
 2. Edit the corresponding `${XDG_CONFIG_HOME:-$HOME/.config}/komodo/endpoints/<name>.toml` through the authorized credential path. Its filename becomes the profile name. Remove an endpoint only when its retirement is established; check consumers before removing their connection.
 3. Render after inventory changes:
 
    ```bash
-   bash ~/.claude/skills/km-endpoints/bin/render-config.sh
+   bash ~/.claude/skills/km/bin/render-config.sh
    ```
 
 4. Expect a profile-name list, then inspect the selected sanitized config and make a read-only connection check:
@@ -58,13 +51,13 @@ The renderer checks that each file contains `host`, `key` and `secret` assignmen
 
 ## Supply REST credentials without displaying them
 
-`skill://km-api` consumes `show.sh`; ordinary CLI calls consume the rendered profiles. The helper emits secrets, so capture its output within the request shell, with shell tracing disabled, rather than invoking it as a visible standalone tool call.
+`api.md` consumes `show.sh`; ordinary CLI calls consume the rendered profiles. The helper emits secrets, so capture its output within the request shell, with shell tracing disabled, rather than invoking it as a visible standalone tool call.
 
 ```bash
 bash <<'BASH'
 (
   set +x
-  endpoint_fields=$(bash ~/.claude/skills/km-endpoints/bin/show.sh homelab) || exit
+  endpoint_fields=$(bash ~/.claude/skills/km/bin/show.sh homelab) || exit
   eval "$endpoint_fields" || exit
   # Use HOST / KEY / SECRET here for the scoped API request; do not echo them.
 )

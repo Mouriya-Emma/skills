@@ -1,13 +1,6 @@
----
-name: km-stack
-description: >-
-  Inspect and operate live Komodo Compose Stacks: deploy, pull, restart, stop or destroy. Check repo/file_contents authority before config changes; repo-backed declarations belong to the owning workload repo and ResourceSync workflow.
-allowed-tools: Bash, Read
----
-
 # Komodo Stack operations
 
-A Stack is a Compose project managed by Komodo. For Core selection and resource relationships use `skill://container-management`; for missing profiles use `skill://km-endpoints`. Examples select homelab explicitly; use trading when that is the established target.
+A Stack is a Compose project managed by Komodo. Core selection, `-p`, the authority table and the CLI/Core version-mismatch fallback are in `../SKILL.md`; profile problems are in `endpoints.md`. Examples select homelab explicitly; use trading when that is the established target.
 
 ## Inspect the target and declaration source
 
@@ -16,13 +9,13 @@ core=homelab
 km -p "$core" ls stacks -a -f json
 ```
 
-The default listing hides down Stacks. Resolve the exact Stack and Server from this inventory, not a memorized service list. Inspect its `repo`, `branch`, file path and `file_contents` configuration in the resource details; if the listing does not expose full config, use the Komodo UI or a version-matched `GetStack` read through `skill://km-api`.
+The default listing hides down Stacks. Resolve the exact Stack and Server from this inventory, not a memorized service list. Inspect its `repo`, `branch`, file path and `file_contents` configuration in the resource details; if the listing does not expose full config, use the Komodo UI or a version-matched `GetStack` read (`api.md`).
 
-- **`repo` set, `file_contents=false`:** the owning workload repo (`komodo/syncs/` and `stacks/`) is declaration authority. Change it there and run its ResourceSync workflow (`skill://local-cicd`, `skill://km-gitops`). Direct live config edits are not a substitute. This skill handles inspection, bounded retry and lifecycle operations.
-- **`repo` empty, `file_contents=true`:** retired shape — no current Stack on either Core uses it and `homelab-tf/komodo` no longer has a `file_contents` Stack mechanism. Treat such a record as unexpected drift: establish its owner and move it to the workload-repo/ResourceSync path; never recreate or edit the retired mechanism.
+- **`repo` set, `file_contents=false`:** the owning workload repo (`komodo/syncs/` and `stacks/`) is declaration authority. Change it there; the push reaches km through its webhook and ResourceSync (`gitops.md`, onboarding steps in `../SKILL.md`). Direct live config edits are not a substitute. This reference covers inspection, bounded retry and lifecycle operations.
+- **`repo` empty, `file_contents` non-empty:** not repo-declared. Do not edit it as if it were the declaration, and do not create new Stacks of this shape. Its fix is moving the compose into a workload repo with its own ResourceSync (`../SKILL.md`).
 - **Neither shape is established:** inspect ownership before changing config. Do not guess which field wins.
 
-Keycloak is a pve-vctcn Compose service on vctcn-app1 / VM 180, not a homelab or trading Stack; the Forgejo and Mattermost services there are retired (pve-vctcn#286). Historical down records do not authorize deploying any of them here.
+Keycloak stays in IaC under the placement criterion (post-deploy realm/client/user configuration); it is not a km Stack. Retired services (for example Mattermost and Forgejo on VM 180, the moat VM 111–113 Stacks) are never deployed again; down or unknown records of them do not authorize any deploy.
 
 ## Choose the smallest action that meets the request
 
@@ -45,7 +38,7 @@ Service-scoped forms: `pull-stack`, `start-stack`, `restart-stack`, `stop-stack`
 km -p "$core" x deploy-stack "$stack" "$service"
 ```
 
-This is a **deployment**, not just a restart. Service filtering is ignored for Swarm-mode Stacks; do not claim bounded service scope there. For raw-container exceptions use `skill://km-container`. Avoid wildcard/batch operations until every matched project and its impact are explicitly in scope.
+This is a **deployment**, not just a restart. Service filtering is ignored for Swarm-mode Stacks; do not claim bounded service scope there. For raw-container exceptions use `container.md`. Avoid wildcard/batch operations until every matched project and its impact are explicitly in scope.
 
 ## Verify and recover
 

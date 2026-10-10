@@ -1,30 +1,23 @@
----
-name: km-api
-description: >-
-  Direct Komodo REST requests only for CLI gaps: version-matched /read, /write or /execute payloads, resource IDs and endpoint-helper credentials. Use for missing commands/fields, not to bypass repo-backed declarations or IaC ownership.
-allowed-tools: Bash, Read
----
-
 # Komodo REST API for CLI gaps
 
-Prefer an existing `km -p <core>` command: it handles authentication and errors. Use REST when the CLI lacks the required operation, field or resource detail. `skill://container-management` owns target routing; `skill://km-endpoints` owns connections and the credential-helper contract.
+Prefer an existing `km -p <core>` command: it handles authentication and errors. Use REST when the CLI lacks the required operation, field or resource detail, or when a newer local CLI fails against an older Core with `ERROR: 200 OK`. Target routing is in `../SKILL.md`; connections and the credential-helper contract are in `endpoints.md`.
 
 ## Establish operation and authority
 
 1. Inspect installed CLI help for the requested operation before choosing REST. A JSON request is not inherently preferable to a supported CLI command.
-2. Establish the Core and resource owner. For repo-backed Stacks, change `komodo/syncs/` and `stacks/` in the owning workload repo and use its ResourceSync workflow. The API is for inspection, authorized bounded runtime operations or a declared workflow's integration—not a second declaration store. Workload `file_contents` Stacks are retired; the remaining `file_contents` users are control-plane resources owned by `homelab-tf/komodo` (e.g. the registry-refresh Action).
+2. Establish the Core and resource owner from the authority table in `../SKILL.md`. For repo-backed Stacks, change `komodo/syncs/` and `stacks/` in the owning workload repo. The API is for inspection, authorized bounded runtime operations or a declared workflow's integration—not a second declaration store. A Stack with an empty repo and non-empty `file_contents` is not repo-declared; its fix is moving it into a workload repo, not editing it through the API.
 3. Determine the live Core version with `GetVersion` (both Cores are 2.2.0 at the time of writing), then use that version's schema: the `moghtech/komodo` release tag (e.g. `v2.2.0`, request types under `client/core/rs/src/api/`) or a matching local checkout. The official overview is [API and Clients](https://komo.do/docs/ecosystem/api); its linked reference and the demo instance track the latest release, so do not apply them to an older Core. Verify request type, params and response shape before writing a payload. Do not invent type names or copy a create/update config from another version.
 4. Read current resource state and resolve IDs **on this Core**. For example, `ListServers` supplies Server IDs; confirm the target's name/host before using its ID in a Stack operation. Never reuse IDs across Cores.
 
 ## Make a read-only request
 
-The helper requires Python 3.11+ and emits the fixed, shell-escaped Bash `NAME`, `HOST`, `KEY`, `SECRET` assignments described in `km-endpoints`. Values are encoded as literal data, not shell commands. Capture only this trusted local helper's output with tracing disabled, stop on failure and consume it in the explicit Bash subshell below. Do not display helper output or reuse stale variables from another Core.
+The helper requires Python 3.11+ (stdlib `tomllib`); on this workstation the default `python3` may be older, so put a newer interpreter first on `PATH` inside the request shell (for example `export PATH="$(dirname "$(uv python find 3.13)"):$PATH"`). It emits the fixed, shell-escaped Bash `NAME`, `HOST`, `KEY`, `SECRET` assignments described in `endpoints.md`. Values are encoded as literal data, not shell commands. Capture only this trusted local helper's output with tracing disabled, stop on failure and consume it in the explicit Bash subshell below. Do not display helper output or reuse stale variables from another Core.
 
 ```bash
 bash <<'BASH'
 (
   set +x
-  endpoint_fields=$(bash ~/.claude/skills/km-endpoints/bin/show.sh homelab) || exit
+  endpoint_fields=$(bash ~/.claude/skills/km/bin/show.sh homelab) || exit
   eval "$endpoint_fields" || exit
   curl --silent --show-error --fail-with-body -X POST "$HOST/read" \
     -H 'Content-Type: application/json' \
@@ -64,5 +57,5 @@ For durable workload Variables/secrets, follow the owning repo's sync workflow r
 
 - Check transport/HTTP errors and the API response body; HTTP success alone does not establish a successful action. For writes, read back the exact resource. For executions, follow the returned update/reference to a terminal result and verify the final behavior.
 - A timeout can occur after acceptance. Read current state/execution history before retrying a create or destructive action; do not duplicate mutations blindly.
-- A missing endpoint or authentication failure goes to `km-endpoints` and the authorized credential source. A schema rejection requires checking the actual version/schema, not trying guessed fields. A failed deploy/sync uses `km-stack`/`km-gitops` recovery and declaration authority.
+- A missing endpoint or authentication failure goes to `endpoints.md` and the authorized credential source. A schema rejection requires checking the actual version/schema, not trying guessed fields. A failed deploy/sync uses `stack.md`/`gitops.md` recovery and declaration authority.
 - If a required schema or authorized credential path cannot be established, stop the mutation and report that specific gap. API access does not grant permission to alter host placement, networking, storage or Core provisioning outside IaC.

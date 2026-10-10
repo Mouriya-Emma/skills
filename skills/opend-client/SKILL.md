@@ -136,4 +136,4 @@ TW, KR, EU venues, and IN are absent from this recorded protocol set; TW is not 
 - VM 130 lifecycle, mesh enrollment, DNS, registry → IaC repos via
   `iac-projects`.
 - Operating the stack remotely (deploy/restart/destroy/logs) →
-  `km-stack` / `km-container` with `-p trading`.
+  the `km` skill with `-p trading`.

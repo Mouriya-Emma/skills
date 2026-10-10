@@ -1,16 +1,10 @@
----
-name: km-database
-description: Back up, restore, prune backups or copy Komodo Core metadata databases, distinct from application databases and Docker volumes. Use before Core maintenance or migration; verify database connection targets and explicit overwrite authorization.
-allowed-tools: Bash, Read
----
-
 # Komodo metadata database operations
 
 This is Komodo's own resource/user/control-plane state, not application database contents, Compose bind mounts or Docker volumes. The homelab deployment uses Postgres backing FerretDB. A Core metadata backup does not back up the applications its Stacks run.
 
 ## Establish the actual database target
 
-1. Select the intended Core using `skill://container-management`; `homelab` and `trading` are independent Cores. Profile/inventory recovery is `skill://km-endpoints`.
+1. Select the intended Core (`../SKILL.md`); `homelab` and `trading` are independent Cores. Profile/inventory recovery is in `endpoints.md`.
 2. Inspect sanitized CLI configuration and the owning IaC database/backup configuration in the same environment where `km db` will run. **`-p` does not select the database.** `db backup` reads `[database]` / `KOMODO_DATABASE_*`; `db restore` and `db copy` read `[database_target]` / `KOMODO_CLI_DATABASE_TARGET_*` (copy options can override it). Both default to `localhost:27017`. On the current Cores (km-cli 2.2.0), `km config` inside the Core container resolves `[database]` to `ferretdb:27017` and leaves `[database_target]` at the default, so an in-place restore needs `[database_target]` written to `/config/komodo.cli.toml` first (homelab-tf `.claude/rules/pitfalls/komodo-rebuild-bootstrap-vs-restore.md`).
 3. Capture the Core's pre-maintenance resource inventory and identify a recoverable backup destination:
 
