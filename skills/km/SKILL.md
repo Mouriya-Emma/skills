@@ -19,7 +19,7 @@ app 归 km 还是归 IaC，按 `personal-infra-routing` 规则的归属判据定
 | `trading` | trading-agent / VM 130，`http://trading-agent.mouriya.lan:9120` | 独立 Core，workload 见 `homelab-trading` skill |
 | `nekoringo` | nekoringo1 `218.33.108.254`，由 `mouriya-s-lab/nekoringo-iac` 的 `apps/komodo` 部署 | 专用主机，不属 homelab；Server `nekoringo1`（Core 与边缘服务）、`nekoringo2`（生产与测试 workload） |
 
-- 每条命令写 `km -p <core>`，没有"当前 Core"。生成配置里的 `default_profile` 只是 CLI 兜底，不是选择依据。
+- 上表是主要 Core；本机登记的全部连接以 `bash ~/.claude/skills/km/bin/list.sh` 为准。每条命令写 `km -p <core>`，没有"当前 Core"。生成配置里的 `default_profile` 只是 CLI 兜底，不是选择依据。
 - Server、Stack 的名字和 ID 只在本 Core 内有效。先列出再操作：`km -p "$core" ls servers`、`km -p "$core" ls stacks -a -f json`。
 - 本机 km CLI 版本高于 Core 时，`ls stacks`、`ls servers`、`ps` 可能直接报 `ERROR: 200 OK`。此时用 `references/api.md` 的版本匹配 REST 读（`ListStacks`、`ListServers`），不要换 Core 或改配置。
 
