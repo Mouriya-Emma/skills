@@ -15,13 +15,13 @@ IaC 只管机器和平台：VM/CT 生命周期、磁盘、网卡、主机基线�
 
 - 本地 `/Users/mouriya/Ext/code/homelab-tf`；GitHub `mouriya-s-lab/homelab-tf`。
 - 单台 Proxmox host，家庭 LAN `192.168.1.67`，ISP NAT 之后。OpenTofu workspace 管 CT/VM；`<app>/` 下是 Ansible role submodule（各自独立 git repo，parent 跟踪指针）。
-- 入口 `AGENTS.md`，之后 `.claude/rules/` 与 `.claude/skills/`（IaC 变更任务入口是 repo skill `iac-deploy-task`）。
+- 入口 `AGENTS.md`，之后 `.claude/rules/` 与 `.claude/skills/`（IaC 变更任务入口是 repo skill `iac-deploy`）。
 
 ### pve-vctcn：OVH 云主机与公网边缘
 
 - 本地 `/Users/mouriya/Ext/code/pve-vctcn`；GitHub `mouriya-s-lab/pve-vctcn`。
 - 单台 OVH 裸金属 Proxmox host `192.99.9.212`，单公网 IP NAT；guest 内网 `172.16.1.0/24` 于 `vmbr1`；SSH key-only。OpenTofu workspace 在 `apps/` 下管 VM，与手工 guest（如 NPM CT 171）共存。没有 Ansible。
-- 入口 `AGENTS.md`（指向 `CLAUDE.md`），之后 `.claude/rules/`、`.claude/skills/`；规则与 homelab-tf 各自独立。
+- 入口 `AGENTS.md`（指向 `CLAUDE.md`），之后 `.claude/rules/`、`.claude/skills/`（IaC 变更任务入口同样是 `iac-deploy`）；规则与 homelab-tf 各自独立。
 
 ### nekoringo-iac
 
