@@ -1,6 +1,6 @@
 ---
 name: image-share
-description: Upload local image evidence to img.237575.xyz for a public URL usable in GitHub PRs. The installed helper resolves auth from env or pve-vctcn SOPS; callers supply the image path, not credentials. Not for non-image assets or permanent archival.
+description: Upload local image evidence to img.237575.xyz for a public URL usable in GitHub PRs. The installed helper resolves auth from env or the vctcn-edge SOPS file; callers supply the image path, not credentials. Not for non-image assets or permanent archival.
 ---
 
 # image-share
@@ -37,8 +37,7 @@ Before embedding, verify anonymous HTTP 200 with an image content type and view 
 The helper resolves the password in order:
 
 1. Nonempty `ZERO721_PASSWORD` in the environment.
-2. Nonempty `TF_VAR_zero721_admin_password` from an already-loaded IaC environment.
-3. SOPS-decrypt `pve-vctcn/_shared/secrets/secrets.yml` and select the nonempty string `zero721_admin_password` with Mike Farah `yq`.
+2. SOPS-decrypt `vctcn-edge/secrets.yml` (the workload repo that declares the 0721 Stack) and select the nonempty string `VCTCN_EDGE_ZERO721_RUNTIME_PASSWORD` with Mike Farah `yq`. That key is the retained admin's current login password; the repo's `VCTCN_EDGE_ZERO721_ADMIN_PASSWORD` only seeds an empty database and does not log in to the existing one.
 
 It does not use Keychain or prompt for credentials. Follow `credentials-from-owning-source`: resolve the existing local age/SOPS setup without exposing plaintext; do not ask the user to paste a password, print decrypted files, or create a second secret store.
 
@@ -47,9 +46,8 @@ It does not use Keychain or prompt for credentials. Follow `credentials-from-own
 | `ZERO721_BASE_URL` | `https://img.237575.xyz` |
 | `ZERO721_EMAIL` | `mouriya@vctcn.local` |
 | `ZERO721_PASSWORD` | Explicit environment override from an authorized secret source |
-| `TF_VAR_zero721_admin_password` | Existing pve-vctcn environment value |
-| `ZERO721_IAC_REPO` | `/Users/mouriya/Ext/code/pve-vctcn` |
-| `ZERO721_SECRETS_FILE` | `$ZERO721_IAC_REPO/_shared/secrets/secrets.yml` |
+| `ZERO721_WORKLOAD_REPO` | `/Users/mouriya/Ext/code/vctcn-edge` |
+| `ZERO721_SECRETS_FILE` | `$ZERO721_WORKLOAD_REPO/secrets.yml` |
 
 All paths require `curl` and `jq`; SOPS fallback additionally requires `sops`, Mike Farah `yq`, and a usable age identity. Missing file/tool/key is a local integration failure, not a reason to hand-feed credentials.
 
@@ -61,13 +59,13 @@ The helper logs in per invocation with `POST /api/auth/login`, JSON `{name: <ema
 |---|---|
 | Missing/unreadable file | Correct the evidence path. The helper checks file readability, not whether bytes are an image. |
 | SOPS/tooling failure | Check configured repo/file paths and existing age/tool setup without printing secrets. |
-| `login failed` | Check selected host/email and IaC credential source; the helper neither clears Keychain nor performs rotation. Durable service/auth repair belongs in `pve-vctcn`. |
+| `login failed` | Check selected host/email and the workload repo's credential source; the helper neither clears Keychain nor performs rotation. Admin credential changes belong to the 0721 Stack in `vctcn-edge`. |
 | `already uploaded` | Reuse the saved URL. The error does not recover it. If genuinely new evidence is needed, capture it again; the helper's re-encode hint is not a guarantee against server-side deduplication. |
-| Other upload HTTP error | Inspect the diagnostic privately; do not capture stderr as the URL. A 413/size rejection is likely the image-size limit: IaC documents 0721's default `upload.image_size_limit` as 8 MiB (Axum global 16 MiB, NPM body 25 MiB), but `Config.toml` persists on VM 180 and may override it — shrink the image or check the live config. |
+| Other upload HTTP error | Inspect the diagnostic privately; do not capture stderr as the URL. A 413/size rejection is likely the image-size limit: 0721's default `upload.image_size_limit` is 8 MiB (Axum global 16 MiB, NPM body 25 MiB), but `Config.toml` persists in the 0721 data directory on VM 180 and may override it — shrink the image or check the live config. |
 | Public URL is 404/non-image or does not render | Do not claim evidence uploaded successfully; investigate delivery/rendering. |
 
 Transcoding, deduplication, and key format are server behavior, not promises enforced by this client. Verify returned content instead of assuming a WebP conversion, size reduction, fixed key length, or token lifetime.
 
 ## Service boundary
 
-This skill uploads evidence; it does not administer 0721. Where the 0721 deployment is declared and how its admin is rotated: read `pve-vctcn/apps/vctcn-app1/` for the current state. The `img.237575.xyz` proxy host is manual NPM state on CT 171; `apps/vctcn-app1/scripts/setup-npm-proxies.sh` is only the out-of-band helper, not a workspace-managed resource. Infrastructure changes go through `iac-projects`; app deployment changes through `km`.
+This skill uploads evidence; it does not administer 0721. The 0721 deployment is the Komodo Stack `zero721` declared in `mouriya-s-lab/vctcn-edge` (`komodo/syncs/zero721.toml`, `stacks/zero721/`), running on Server `vctcn-app1`; change or debug it through `km`. The `img.237575.xyz` proxy host is NPM runtime state on CT 171. VM, network and ingress changes go through `iac-projects`.

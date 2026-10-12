@@ -4,8 +4,8 @@
 #
 # Auth is auto-resolved:
 #   1. $ZERO721_PASSWORD env var (highest priority, for explicit overrides)
-#   2. $TF_VAR_zero721_admin_password from an already-loaded pve-vctcn env
-#   3. pve-vctcn SOPS secrets file: _shared/secrets/secrets.yml
+#   2. vctcn-edge SOPS secrets file (the 0721 Stack's workload repo):
+#      VCTCN_EDGE_ZERO721_RUNTIME_PASSWORD, the retained admin's login password
 #
 # Exit code is the source of truth for success/failure. On success exactly one
 # line is written to stdout (the URL, or markdown form with -m). All diagnostics
@@ -15,8 +15,8 @@ set -euo pipefail
 
 BASE_URL="${ZERO721_BASE_URL:-https://img.237575.xyz}"
 EMAIL="${ZERO721_EMAIL:-mouriya@vctcn.local}"
-IAC_REPO="${ZERO721_IAC_REPO:-/Users/mouriya/Ext/code/pve-vctcn}"
-SECRETS_FILE="${ZERO721_SECRETS_FILE:-$IAC_REPO/_shared/secrets/secrets.yml}"
+WORKLOAD_REPO="${ZERO721_WORKLOAD_REPO:-/Users/mouriya/Ext/code/vctcn-edge}"
+SECRETS_FILE="${ZERO721_SECRETS_FILE:-$WORKLOAD_REPO/secrets.yml}"
 
 usage() {
   cat >&2 <<'USAGE'
@@ -27,14 +27,14 @@ Options:
   -h, --help       Show this help.
 
 Environment overrides:
-  ZERO721_BASE_URL     default: https://img.237575.xyz
-  ZERO721_EMAIL        default: mouriya@vctcn.local
-  ZERO721_PASSWORD     explicit password override
-  ZERO721_IAC_REPO     default: /Users/mouriya/Ext/code/pve-vctcn
-  ZERO721_SECRETS_FILE default: $ZERO721_IAC_REPO/_shared/secrets/secrets.yml
+  ZERO721_BASE_URL       default: https://img.237575.xyz
+  ZERO721_EMAIL          default: mouriya@vctcn.local
+  ZERO721_PASSWORD       explicit password override
+  ZERO721_WORKLOAD_REPO  default: /Users/mouriya/Ext/code/vctcn-edge
+  ZERO721_SECRETS_FILE   default: $ZERO721_WORKLOAD_REPO/secrets.yml
 
-Default auth comes from pve-vctcn's SOPS+age secrets file. If the operator
-already loaded the IaC env, TF_VAR_zero721_admin_password is used directly.
+Default auth comes from vctcn-edge's SOPS+age secrets file
+(VCTCN_EDGE_ZERO721_RUNTIME_PASSWORD).
 
 Stdout (success): https://img.237575.xyz/media/<key>
 Exit codes: 0 ok, 1 runtime error, 2 usage error.
@@ -67,16 +67,12 @@ read_sops_password() {
   command -v sops >/dev/null || die "sops not in PATH; install it or set ZERO721_PASSWORD"
   command -v yq >/dev/null || die "yq not in PATH; install mikefarah yq or set ZERO721_PASSWORD"
   sops -d "$SECRETS_FILE" \
-    | yq -er '.zero721_admin_password | select(type == "!!str" and length > 0)'
+    | yq -er '.VCTCN_EDGE_ZERO721_RUNTIME_PASSWORD | select(type == "!!str" and length > 0)'
 }
 
 resolve_password() {
   if [[ -n "${ZERO721_PASSWORD:-}" ]]; then
     printf '%s' "$ZERO721_PASSWORD"
-    return
-  fi
-  if [[ -n "${TF_VAR_zero721_admin_password:-}" ]]; then
-    printf '%s' "$TF_VAR_zero721_admin_password"
     return
   fi
   read_sops_password
