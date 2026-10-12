@@ -13,7 +13,7 @@ Never answer from a stored total. Recompute on each request; workload repos and 
 
 1. Read OpenTofu CT/VM declarations from the IaC repos.
 2. Read the homelab Core's Stacks and ResourceSyncs, and the trading Core's when trading is in scope (commands below).
-3. Count vctcn services from the VM-backed `apps/*/main.tf` workspaces plus live placement, and add Stacks on vctcn Servers (`ct171`, `vctcn-mail`) from the homelab Core. `apps/dns/` manages Cloudflare records and is not a service.
+3. Count vctcn services from the homelab Core's Stacks on the vctcn Servers (`vctcn-app1`, `vctcn-runner`, `vctcn-registry`, `vctcn-mail`, `ct171`) plus the apps pve-vctcn keeps in IaC (Keycloak on VM 180, GARM on VM 181). `apps/dns/` manages Cloudflare records and is not a service.
 4. State the timestamp, granularity, which inactive or retired items are excluded, and the concrete names behind the total.
 
 Count active top-level services, not backing containers. Do not count Postgres sidecars, registry `docker_auth`, NPM proxy-host rows or CoreDNS/Unbound/Kea/dns-info sub-daemons as separate services. Count `moat-browser` once although it has a VM and several containers.
@@ -26,15 +26,15 @@ Use this to locate declarations, not as proof a guest is running.
 
 ### homelab-tf
 
-DNS/DHCP (CT 312), Step-CA (CT 313), the homelab Komodo Core and its `Local` Server (VM 110 moat-app1), the browser host (VM 104), and trading-agent with the independent trading Core (VM 130). Retired and stopped: OpenBao (CT 314), app01 (VM 102), agent-runtime (VM 103), nanoclaw (VM 106), moat workload hosts (VM 111–113). Static CT/PVE identities come from `network/identities.yaml`.
+DNS/DHCP (CT 312), Step-CA (CT 313), the homelab Komodo Core and its `Local` Server (VM 110 moat-app1), the browser host (VM 104), and trading-agent with the independent trading Core (VM 130). OMV (VM 101) is outside the TF lifecycle; its Periphery is Server `omv`, whose Stacks come from workload repos. Retired and stopped: OpenBao (CT 314), app01 (VM 102), agent-runtime (VM 103), nanoclaw (VM 106), moat workload hosts (VM 111–113). Static CT/PVE identities come from `network/identities.yaml`.
 
-### pve-vctcn
+### vctcn
 
-Read current workspaces rather than a stored list:
+pve-vctcn declares the guests and the apps that stay in IaC; the other apps are Stacks declared in workload repos (mostly `vctcn-edge`). Read current workspaces and live Stacks rather than a stored list:
 
-- VM 180 `vctcn-app1`: Keycloak and the other compose services in its workspace. Mattermost and Forgejo there are retired (pve-vctcn#286); their volumes and Keycloak identities are retained.
-- VM 181 `vctcn-runner`: GARM controller and resident LXD runner host. Overflow runners run as edge Incus instances on the operator's laptop; count GARM once and do not count the laptop as a service host.
-- VM 182 `vctcn-registry`: registry and its auth helper (count the registry once).
+- VM 180 `vctcn-app1`: Keycloak (pve-vctcn `apps/vctcn-app1`) and the workload Stacks on Server `vctcn-app1`. Mattermost and Forgejo there are retired (pve-vctcn#286); their volumes and Keycloak identities are retained.
+- VM 181 `vctcn-runner`: GARM controller (pve-vctcn `apps/runner`) and resident LXD runner host; its webhook proxy is a workload Stack. Overflow runners run as edge Incus instances on the operator's laptop; count GARM once and do not count the laptop as a service host.
+- VM 182 `vctcn-registry`: the `registry` Stack (registry and its auth helper; count the registry once) and the other Stacks on Server `vctcn-registry`. pve-vctcn `apps/registry` holds the VM, the Keycloak `registry` realm and the signing keypair, not the app.
 - VM 183 `vctcn-mail`: the `mail` Stack on the homelab Core (Server `vctcn-mail`).
 - CT 171: NPM and 3proxy Stacks on the homelab Core (Server `ct171`). NPM is ingress infrastructure; count it only when the requested granularity includes control-plane services.
 
@@ -59,7 +59,7 @@ Return a compact table grouped by repo or Core: service, active/inactive/retired
 
 Existing: `km` (all Komodo operations and app onboarding), `iac-projects` (IaC repo routing), `local-cicd` (GARM, registry, build artifacts), `keycloak` (SSO integration and inspection), `dns-check` (LAN DNS discoverability, not full DNS operations), `homelab-trading` (trading workloads), `opend-client`, `image-share`.
 
-Without a dedicated skill: registry, Memos, Homepage, moat-browser, Step-CA, full DNS service operations.
+Without a dedicated skill: registry, Homepage, moat-browser, Step-CA, full DNS service operations.
 
 ## Sources
 
@@ -67,7 +67,9 @@ Verify current state from these before a recommendation the user may act on; dis
 
 homelab-tf (`/Users/mouriya/Ext/code/homelab-tf`): `AGENTS.md`, `Makefile` (workspace list), workspace `main.tf` with `vms/*.yaml` and `network/cts/*.yaml`, `network/identities.yaml`, `_shared/ansible/inventory.yml`, `.gitmodules`.
 
-pve-vctcn (`/Users/mouriya/Ext/code/pve-vctcn`): `AGENTS.md`, `apps/*/{main.tf,README.md,variables.tf}`, the compose templates under `apps/*/templates/`.
+pve-vctcn (`/Users/mouriya/Ext/code/pve-vctcn`): `AGENTS.md`, `apps/*/{main.tf,README.md,variables.tf}`, the compose templates under `apps/*/templates/` (IaC-kept apps only).
+
+Workload repos (`homelab-apps`, `vctcn-edge`, `homelab-trading`, `runner-canary`, `moat-browser-deploy`, …): `komodo/syncs/*.toml` and `stacks/*/`. A live Stack's `repo` field names its declaring repo, including ones missing from this list.
 
 `homelab-tf/docs/iac-drift-investigation/*` is historical incident evidence, not current inventory; it may hold stale placement or sensitive details.
 

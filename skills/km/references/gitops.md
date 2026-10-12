@@ -13,19 +13,19 @@ km -p "$core" ls actions -f json
 
 Inspect the selected resource's full configuration and pending changes in the Komodo UI; if the listing is insufficient and an API read is needed, use `api.md` with the installed Core's schema. Establish repository, branch, paths, targets and owner. For Procedures/Actions read their steps/code, permissions and nested targets, including destructive actions and external side effects.
 
-For repo-backed workloads, `komodo/syncs/` and `stacks/` in the owning workload repo are authority. A push reaches km through the repo's GitHub webhook; the repo's workflow writes Variables from its SOPS file and then runs RunSync (`../SKILL.md`). Do not bypass them with live config edits.
+For repo-backed workloads, `komodo/syncs/` and `stacks/` in the owning workload repo are authority. A push reaches km through the repo's GitHub webhook: in repos with a declaration Procedure (such as `sync-homelab-apps`) the hook runs that Procedure — RunSync, then `DeployStackIfChanged` for each `deploy = true` Stack — otherwise it runs the ResourceSync directly. The repo's workflow writes Variables from its SOPS file, registers its Procedures through the API and runs RunSync (`../SKILL.md`). Do not bypass them with live config edits.
 
 ## Apply declarations: run-sync
 
 1. Inspect the declaration revision and **pending create/update/delete diff** before execution. Surface the affected resources, removals and drift to the user. If a diff is unavailable, do not assume the sync is harmless; resolve the preview/inspection gap before applying to shared state.
-2. Establish that the desired change is authorized. Deletions and other destructive changes need explicit scope/impact confirmation. Prefer the owning repo's workflow for normal changes; use direct execution for a requested or bounded retry with the same declared revision and prerequisites.
+2. Establish that the desired change is authorized. Deletions and other destructive changes need explicit scope/impact confirmation. Prefer the owning repo's push hook and workflow for normal changes; use direct execution for a requested or bounded retry with the same declared revision and prerequisites.
 3. Set `sync` to the inspected name and execute:
 
    ```bash
    km -p "$core" x run-sync "$sync"
    ```
 
-4. Wait for its terminal execution result in Komodo and inspect failures. Re-read resulting resources, including each affected Stack's repo/branch/file path. In Komodo 2.x, RunSync also runs the deploy work its configuration requests for changed Stacks/Deployments (`deploy_from_cache`), so do not issue a second deploy by habit. A successful sync still does **not** prove application health: run the real application smoke (`stack.md`), and use a separate Stack lifecycle action only as an authorized, bounded retry.
+4. Wait for its terminal execution result in Komodo and inspect failures. Re-read resulting resources, including each affected Stack's repo/branch/file path. RunSync deploys a `deploy = true` Stack only when the Stack's Sync-declared configuration changed; it does not refresh the Stack's repo files, so a commit that only changes compose or `config_files` content reports No Changes and deploys nothing. Where the repo has a declaration Procedure, its `DeployStackIfChanged` stage applies such changes: run or wait for that Procedure instead of a bare RunSync, and do not issue a second deploy by habit. A successful sync still does **not** prove application health: run the real application smoke (`stack.md`), and use a separate Stack lifecycle action only as an authorized, bounded retry.
 
 ## Capture live state: commit-sync
 

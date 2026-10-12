@@ -1,6 +1,6 @@
 ---
 name: homelab-trading
-description: Workload routing for VM 130 trading-agent stacks, moomoo OpenD, the trading Komodo Core's declarations, and the homelab-trading secrets/sync workflow. VM 130, SR-IOV, DNS, mesh, registry and the trading Komodo installation belong to IaC (iac-projects); Stack operations use the km skill with -p trading.
+description: Workload routing for VM 130 trading-agent stacks, moomoo OpenD, the trading Komodo Core's declarations, and the homelab-trading secrets/sync workflow. VM 130, SR-IOV, DNS, mesh and the trading Komodo installation belong to IaC (iac-projects); Stack operations use the km skill with -p trading.
 ---
 
 # homelab-trading — workload-only signpost
@@ -27,7 +27,7 @@ Read repo-local `.claude/rules/{topology,dev-conventions,secrets-handling,deploy
 | VM 130 lifecycle, sizing, disks, SR-IOV, cloud-init | `iac-projects`, `homelab-tf/trading/` |
 | Trading Komodo Core install, Periphery, host bootstrap | `iac-projects`, `homelab-tf` Ansible |
 | DNS / NetBird enrollment | `iac-projects`, current homelab DNS/VM authority |
-| `registry.237575.xyz` | `pve-vctcn/apps/registry` |
+| `registry.237575.xyz` | registry app: `vctcn-edge/stacks/registry`; VM 182, Keycloak realm and signing keypair: `pve-vctcn/apps/registry`; CI push and pull side: `local-cicd` |
 | GARM controller (VM 181) and its resident/edge runners | `pve-vctcn/apps/runner`, `local-cicd` |
 | Core connection/profile, Stack deploy/restart/stop/list, container ps/inspect/restart, REST reads | `km` skill with `-p trading` |
 

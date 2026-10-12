@@ -1,7 +1,7 @@
 ---
 name: km
 description: >-
-  Komodo (km) for homelab and trading apps. Use to onboard a new app, move an app out of IaC, release or redeploy through the workload repo and GitHub webhook, deploy/restart/stop/destroy Stacks, debug containers, run ResourceSync/Action/Procedure, run Komodo Build/Repo, clean Docker disk (prune images/volumes), back up or restore Core metadata, call the API for CLI gaps, and manage Core connections/profiles. Read the matching reference before any command.
+  Komodo (km) for homelab and trading apps. Use to onboard a new app, move an app out of IaC, release an image or apply declarations through GitHub webhooks into km, deploy/restart/stop/destroy Stacks, debug containers, run ResourceSync/Action/Procedure, run Komodo Build/Repo, clean Docker disk (prune images/volumes), back up or restore Core metadata, call the API for CLI gaps, and manage Core connections/profiles. Read the matching reference before any command.
 allowed-tools: Bash, Read, Write, Edit, Glob
 ---
 
@@ -27,9 +27,10 @@ app 归 km 还是归 IaC，按 `personal-infra-routing` 规则的归属判据定
 
 | 对象 | 声明者 | 改动入口 |
 |---|---|---|
-| Stack、compose、Stack 的 Variable 引用 | app 的 workload repo：`komodo/syncs/*.toml` + `stacks/<name>/compose.yaml` | 改 repo，push 后由 GitHub webhook 触发该 repo 的 ResourceSync |
+| Stack、compose、Stack 的 Variable 引用 | app 的 workload repo：`komodo/syncs/*.toml` + `stacks/<name>/compose.yaml` | 改 repo，push 后由 GitHub webhook 触发该 repo 的声明部署（见下文第 5 步） |
 | app 的 secret | workload repo 根目录 SOPS `secrets.yml` | 该 repo 的 workflow 解密后写成 km Variable，再 RunSync |
 | workload repo 自己的 ResourceSync 对象 | workload repo 的 workflow | workflow 在 RunSync 前做"不存在就创建，存在就局部更新" |
+| workload repo 的 Procedure（声明部署、镜像发布部署）及其 `webhook_secret` | workload repo 的 workflow，经 API 注册，id 记在 repo 里 | workflow；不写进 Sync TOML |
 | outbound Periphery 的 Server 记录 | Periphery 自己用 onboarding key 注册 | 安装 Periphery 的一方 |
 | Core、Periphery 安装，Core 配置与 `[secrets]`，inbound Server 记录，私有 registry 拉取账号与刷新 Action，Core 的公网 listener 入口 | 安装 Komodo 的 IaC repo（`iac-projects`） | 该 IaC repo 的流程；这里不出现任何 app 名 |
 
@@ -45,11 +46,15 @@ app 归 km 还是归 IaC，按 `personal-infra-routing` 规则的归属判据定
 1. 按归属判据过一遍：列出从空状态到声明功能可用、以及重建和升级时需要的每个动作。compose 外的动作能内置的，先改镜像、entrypoint 或 compose init（例如用 init 服务创建 bind 目录并 `chown`，用 entrypoint 从 env 落盘密钥文件）。退役的服务不接入。
 2. 选 workload repo：已有 `homelab-apps`（homelab Core 的 `Local`）、`homelab-trading`（trading Core）等；源码公开而部署需要私有内容时，用单独的私有部署 repo（如 `moat-browser-deploy` 之于 `moat-browser`）。
 3. 写 `stacks/<name>/compose.yaml` 和 `komodo/syncs/` 里的 `[[stack]]`；私有镜像绑定 `registry_provider = "registry.237575.xyz"`、`registry_account = "sa-registry"`。secret 进 repo 根 SOPS，compose 用 `[[KEY]]` 引用。
-4. workflow：只在 `secrets.yml` 或 workflow 本身变化时运行；解密 → 不存在就创建、存在就局部更新本 repo 的 ResourceSync（含 `webhook_secret`）→ upsert Variables → RunSync → 等终态。
-5. GitHub webhook：repo 的 push 事件指向 Core 的公网 listener 地址 `https://<Core 公网 listener>/listener/github/sync/<sync 名>/sync`，secret 与该 Sync 的 `webhook_secret` 相同；Komodo 校验签名和分支后执行 RunSync。`*.mouriya.lan` 只在 mesh 内可解析，GitHub 送不到，不能用作 webhook 地址。Core 的公网 listener 入口属于 Komodo 安装，由 `iac-projects` 定位的 IaC repo 提供；还没有时，在该 repo 开 issue，不要临时暴露整个 Core。
-6. 新增一个 secret 并让 compose 引用它时分两次提交：先提交 secret，等 workflow 成功，再提交引用它的 compose。webhook 触发的 RunSync 与 workflow 之间没有先后保证。
-7. 验证：RunSync 终态、Stack 的 repo/branch/文件路径、容器状态，以及 app 声明功能的真实使用路径。
-8. 从 IaC 迁来的 app：迁移时一次性的数据搬运和切换按源仓库的迁移规则做 A/B 核对；切换完成后，在 IaC repo 开 issue 删除它的部署声明。
+4. workflow：在 `secrets.yml`、workflow 本身或 Procedure 注册依赖的声明变化时运行；解密 → 不存在就创建、存在就局部更新本 repo 的 ResourceSync（含 `webhook_secret`）→ upsert Variables → 经 API 注册本 repo 的 Procedure（Get→Create 或 Update→Get，读回 id 与字段）→ RunSync → 等终态。Procedure 不写进 Sync TOML：RunSync 会把 TOML 里省略的字段重置为默认值，workflow 写入的 `webhook_secret` 会被清空。
+5. 声明部署 webhook：repo 的 push 事件指向 Core 公网 listener 上本 repo 的声明部署 Procedure `https://<Core 公网 listener>/listener/github/procedure/<id>/main`，secret 等于该 Procedure 的 `webhook_secret`。Procedure 第一阶段 RunSync，第二阶段对每个 `deploy = true` 的 Stack 执行 `DeployStackIfChanged`；后者先刷新 Stack 的 repo 缓存再比较，所以只改 compose 或 `config_files` 的提交也会部署。实例是 `homelab-apps` 的 `sync-homelab-apps`。push 直接指向 Sync listener `/listener/github/sync/<sync 名>/sync` 只在该 repo 的部署变化全部落在 Sync TOML 字段上时够用（如版本写在 Stack `environment` 的 runner-canary）：RunSync 不刷新 Stack 的 repo 内容，只改 compose 或配置文件的提交得到 No Changes，不会部署。`*.mouriya.lan` 只在 mesh 内可解析，GitHub 送不到，不能用作 webhook 地址。Core 的公网 listener 入口属于 Komodo 安装，由 `iac-projects` 定位的 IaC repo 提供；还没有时，在该 repo 开 issue，不要临时暴露整个 Core。
+6. 镜像发布：源码 CI 不持有 Komodo 凭据；Stack 保持 `auto_pull = true`，不用 `auto_update`（私有镜像查 digest 不带 registry 账号）。
+   - 源码 repo 与 workload repo 分离：源码发布 workflow 推完镜像（先推不可变 tag，再移动通道 tag）后，用自己的 `GITHUB_TOKEN`（`permissions: deployments: write`）创建 GitHub Deployment，`environment` 取 Stack 名，`ref` 取发布 commit SHA。源码 repo 上有一个只订阅 `deployment` 事件的 hook，指向 workload repo 注册的 Procedure `deploy-<stack>`：`/listener/github/procedure/<id>/__ANY__`。该 Procedure 只有一个 `DeployStack <stack>`，`webhook_secret` 专用、不与 Sync 或其他 Procedure 共用。listener 不区分事件类型，创建 hook 时的 ping 也会执行一次部署：先确认运行镜像等于通道 tag 当前 digest，再建 hook。
+   - 源码 repo 即 workload repo：release workflow 推完镜像后，把精确版本作为字面值写进本 repo Sync TOML 中该 Stack 的 `environment`（compose 用该变量引用镜像 tag）并 push，由第 5 步的 push hook 部署。版本不放在 Komodo Variable。
+   - 部署撞上同一 Stack 的其他操作时以 busy 失败并留下失败的 Update；恢复方式是在 GitHub 重投该 delivery。
+7. 新增一个 secret 并让 compose 引用它时分两次提交：先提交 secret，等 workflow 成功，再提交引用它的 compose。push hook 触发的部署与 workflow 之间没有先后保证。
+8. 验证：push hook 或 Deployment hook 触发的执行终态（Procedure 各阶段或 RunSync）、Stack 的 repo/branch/文件路径、容器状态与运行镜像，以及 app 声明功能的真实使用路径。
+9. 从 IaC 迁来的 app：迁移时一次性的数据搬运和切换按源仓库的迁移规则做 A/B 核对；切换完成后，在 IaC repo 开 issue 删除它的部署声明。
 
 ## 先读 reference，再执行命令
 
