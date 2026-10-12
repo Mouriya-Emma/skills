@@ -52,7 +52,7 @@ app 归 km 还是归 IaC，按 `personal-infra-routing` 规则的归属判据定
    - 源码 repo 与 workload repo 分离：源码发布 workflow 推完镜像（先推不可变 tag，再移动通道 tag）后，用自己的 `GITHUB_TOKEN`（`permissions: deployments: write`）创建 GitHub Deployment，`environment` 取 Stack 名，`ref` 取发布 commit SHA。源码 repo 上有一个只订阅 `deployment` 事件的 hook，指向 workload repo 注册的 Procedure `deploy-<stack>`：`/listener/github/procedure/<id>/__ANY__`。该 Procedure 只有一个 `DeployStack <stack>`，`webhook_secret` 专用、不与 Sync 或其他 Procedure 共用。listener 不区分事件类型，创建 hook 时的 ping 也会执行一次部署：先确认运行镜像等于通道 tag 当前 digest，再建 hook。
    - 源码 repo 即 workload repo：release workflow 推完镜像后，把精确版本作为字面值写进本 repo Sync TOML 中该 Stack 的 `environment`（compose 用该变量引用镜像 tag）并 push，由第 5 步的 push hook 部署。版本不放在 Komodo Variable。
    - 部署撞上同一 Stack 的其他操作时以 busy 失败并留下失败的 Update；恢复方式是在 GitHub 重投该 delivery。
-7. 新增一个 secret 并让 compose 引用它时分两次提交：先提交 secret，等 workflow 成功，再提交引用它的 compose。push hook 触发的部署与 workflow 之间没有先后保证。
+7. 新增一个 secret 并让 compose 引用它时分两次提交：先提交 secret，等 workflow 成功，再提交引用它的 compose。push hook 触发的部署与 workflow 之间没有先后保证。只改已有 secret 的值（轮换）不会部署任何 Stack：RunSync 与 `DeployStackIfChanged` 比较的是 TOML 里 `[[KEY]]` 字面量和 repo 文件，不比较插值后的值（Komodo 2.3.3 只在真正执行 `DeployStack` 时插值）；workflow 成功后对使用该 key 的每个 Stack 执行 `km -p <core> x deploy-stack <name>`。
 8. 验证：push hook 或 Deployment hook 触发的执行终态（Procedure 各阶段或 RunSync）、Stack 的 repo/branch/文件路径、容器状态与运行镜像，以及 app 声明功能的真实使用路径。
 9. 从 IaC 迁来的 app：迁移时一次性的数据搬运和切换按源仓库的迁移规则做 A/B 核对；切换完成后，在 IaC repo 开 issue 删除它的部署声明。
 
