@@ -37,8 +37,8 @@ npx skills remove km --global           # 移除指定的全局 skill
 
 ## 独立项目
 
-`software-design` 与 `software-design-graph` 在 [mouriya-s-lab/software-design](https://github.com/mouriya-s-lab/software-design) 中维护，使用该仓库安装：
+`software-design` 与 `software-design-graph` 在 [mouriya-s-lab/SSoT](https://github.com/mouriya-s-lab/SSoT) 中维护，使用该仓库安装：
 
 ```bash
-npx skills add mouriya-s-lab/software-design --skill software-design software-design-graph --global --agent codex claude-code --yes
+npx skills add mouriya-s-lab/SSoT --skill software-design software-design-graph --global --agent codex claude-code --yes
 ```
