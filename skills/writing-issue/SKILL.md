@@ -11,7 +11,7 @@ description: 起草或修订单个 GitHub issue，定义结果验收和 parent �
 
 - 按 `~/.claude/rules/github-issue-pr-routing.rule.md` 分配 issue/PR 语义；更严的 repo-local `CLAUDE.md` 优先。目标 repo 使用 coder-loop preset 时，先读 `presets/<preset>/contract.md` 的分类 label、必需段和 review replay 契约。
 - 读取 issue/PR 必须按 `~/.claude/rules/gh-full-fetch-issues-prs.rule.md` 一次完整落盘：正文、全部讨论/评审、timeline、checks、labels、assignees、图边和附件，分页取全；随后只分析本地文件。先遵守该规则要求的落盘位置规则。不用 `gh issue view` 的窄输出或仅 ID 查询代替完整上下文；现有工具无法完成完整抓取时明确 tooling gap，不假设存在 helper。
-- 每句动机可追溯到真实来源：原文引用 + issue/PR 链接、`owner/repo@<sha>`、代码或日志锚点，或操作员方向原文与日期。转述标清来源；不拼接不同来源伪装成一句引用，矛盾要点明。
+- 每句动机可追溯到真实来源：原文引用 + issue/PR 链接、`owner/repo@<sha>`、代码或日志锚点，或操作员给出的理由（写成陈述并注明出自操作员）。操作员原话不进正文：对话原文依赖会话上下文，读者读不出目标也无从核实；其中决定目标、范围或约束的内容转写进对应段落。转述标清来源；不拼接不同来源伪装成一句引用，矛盾要点明。
 - 起草前落实业务输入：具体 workload、样本总体、使用场景、验证对象及受益者。不能以未定义的「真实 / 目标 / 代表性 X」替代，也不把定义责任下推给实现者。源未指定且调查未能确定的目标扩展、依赖、约束不自行添加；实现目标必然遇到的分叉（非法或不存在的输入、重复请求、并发竞争、错误报告方式）不是扩展，按「方案边界」裁决。
 
 ## 一个问题，一份结果契约
@@ -47,13 +47,13 @@ checkpoint 验结果和被拒的无效行为，不用它强制个人实现偏好
 
 ## 目标
 
-<设计源或用户请求中的目标。>
+<要达成的结果：谁在哪里观察到什么。从设计源或用户请求解析而来，自包含，不贴请求原话。>
 
 ## 上下文
 
 - **Repo**: `owner/repo`（path: `/local/path`）
 - **Working directory**: <如适用>
-- **Design doc / source**: <路径、issue/PR 链接或用户请求原文>
+- **Design doc / source**: <设计文档路径或 issue/PR 链接；没有时省略>
 - **Conventions**: <跨 repo 时明确遵从哪一份契约>
 - **Anchors**: <文件 + 符号 + 当前行为；实施前 grep 核对行号>
 
