@@ -34,3 +34,11 @@ npx skills remove km --global           # 移除指定的全局 skill
 ```
 
 项目级 skill 去掉 `--global`。修改本仓库的 skill 后，先把源码提交并推送到 `main`，再针对受影响的 skill 执行更新或重新安装，并检查已安装内容；不要用全量更新代替选择和核对变更。
+
+## 独立项目
+
+`software-design` 与 `software-design-graph` 在 [mouriya-s-lab/software-design](https://github.com/mouriya-s-lab/software-design) 中维护，使用该仓库安装：
+
+```bash
+npx skills add mouriya-s-lab/software-design --skill software-design software-design-graph --global --agent codex claude-code --yes
+```
