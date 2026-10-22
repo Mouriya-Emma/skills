@@ -2,7 +2,7 @@
 
 ## 发布顺序
 
-先创建树根（umbrella，或充当树根的 audit）取得编号，再按依赖图创建 children：先无依赖的（通常是 owner），再有依赖的（消费者、收尾）；Depends 引用真实编号后挂接并验证。编号取创建响应 URL，不预设连续；草稿占位符发布前替换成真实链接。
+先创建树根（umbrella，或充当树根的 audit）取得编号，再按依赖图创建 children：先无依赖的（通常是 owner），再有依赖的（消费者、收尾）；Depends 引用真实编号后挂接并验证。编号取创建响应 URL，不预设连续；草稿占位符发布前替换成真实链接。coordinator 链接指向树根自身编号，树根创建后用该编号编辑正文填入（区块见 umbrella-body「Coordinator 启动」）。
 
 label 遵守目标 repo/preset 分类契约，不把别的 repo 的 `kind:code`、`kind:comment` 等当成通用分类。
 
@@ -17,6 +17,7 @@ label 遵守目标 repo/preset 分类契约，不把别的 repo 的 `kind:code`�
 - 单个 issue 满足 `skill://writing-issue` 的来源、原子性、中文正文和逐条结果验收；没有内部脚手架，引用都在完整来源中核实。
 - 方向四槽已落位：指称有证据；目标是自包含的结果陈述，没有贴操作员原话；动机有来源，操作员独有事实已在写作期问得；交付约束转绝对日期并入契约。
 - umbrella 系统定位在契约之前；关闭验证逐行可证伪，残留及例外有 owner。
+- 非 retroactive 树根正文末尾有 coordinator 徽章链接：指向树根自身编号，`cwd` 是已核实存在的本机绝对路径，没有裸 URL。
 - child 继承的树内新裁决条款逐字快照；权威文档已承载的内容以必读章节（路径 + 章节锚点 + 用途）引用，没有复写或摘抄；结果用性质描述；最省事路径不能钻过验收表；只能实现后观察的已定方案结果有具名 child 的 assumption 验收行，没有预写的失败备选方案。
 - 全文没有未决问题、待定、unknown、「归 PR / 再说」、「清点后再开」占位或指向未来结论的 Depends：写作期缺口都经 decision-closure 取得事实或裁决，master record 有裁决、依据与被否方案。
 - 完整 thread 的 comment 层与对抗审查已交付；仅草稿任务可按入口规则延后，但不宣称树完成。

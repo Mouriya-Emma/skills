@@ -35,6 +35,8 @@
 
 失败模式：只画语义边——N 个 children 全写「依赖关系：无」却同改一个文件，一次性 fan 出去并行执行时互相 rebase、两个 agent 各自从零重写同一函数；把共享结构的定义权交给「谁先合入」——契约由合并顺序而非树根裁决决定。编排是依赖事实，不约束 child 的实现形态——它给实现者一个单 issue 内看不到的真相：哪个 owner 必须先落地、哪些 children 在改同一块面。
 
+**## Coordinator 启动**（retroactive 树根不写）— 回答「操作员从哪里启动这棵树的交付」。写：正文末尾一个 omp-roundtable coordinator 链接，写法按 [omp-roundtable README「Starting a coordinator」](https://github.com/oh-my-omp/omp-roundtable#starting-a-coordinator)：徽章图片包裹链接，不写裸 URL——GitHub 会滤掉 issue 正文里的内联 `<svg>`，裸链接只显示一长串本地地址。链接指向树根自身编号；`cwd` 是操作员本机目标 repo checkout 的绝对路径，写作期按 SKILL.md「开树前：解析操作员方向」的指称落位查得，不编路径。audit 充当树根时同样写在其 body 末尾。
+
 ## retroactive umbrella / 层级模板
 
 仅用于组织已落地工作，不把未来契约模板套在过去事实。标题以 `RFC:` 开头。段落按以下顺序，不适用的可省：
