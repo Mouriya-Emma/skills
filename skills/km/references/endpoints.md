@@ -15,7 +15,7 @@ Helpers below are relative to the installed `~/.claude/skills/km/` skill. The so
 
 The endpoint inventory is **not automatically synced** from anywhere. Register only a Core that actually exists, from the deployment that owns it: homelab and trading Cores are installed by `homelab-tf` (`komodo_core_hosts`), the Nekoringo Core by `nekoringo-iac/apps/komodo`. Resolve host and credentials from that deployment's secret source (for example `homelab-tf/_shared/ansible/secrets.yml`), not from the user's clipboard. Do not create a speculative connection or embed secrets in Markdown/committed code. Keep the external endpoint directory private (mode `0700`, endpoint files `0600`), outside repositories and npx-managed skill payloads. Installing or updating the skill does not migrate, populate or overwrite this inventory.
 
-Known routing: `homelab` is moat-app1 / VM 110; `trading` is trading-agent / VM 130; `nekoringo` is an independent Core at `http://218.33.108.254:9120`. Check each profile with a real read (`km -p <name> ls syncs`) before relying on it; a registered profile can still return 401.
+Known routing: `homelab` is homelab-app1 / VM 110; `trading` is trading-agent / VM 130; `nekoringo` is an independent Core at `http://218.33.108.254:9120`. Check each profile with a real read (`km -p <name> ls syncs`) before relying on it; a registered profile can still return 401.
 
 ## List and select
 

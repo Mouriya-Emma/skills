@@ -15,7 +15,7 @@ app 归 km 还是归 IaC，按 `personal-infra-routing` 规则的归属判据定
 
 | Core | 位置 | 说明 |
 |---|---|---|
-| `homelab` | moat-app1 / VM 110，`http://moat-app1.mouriya.lan:9120` | Server `Local` 是同机 Periphery；其余 Server 以 `ls servers` 为准 |
+| `homelab` | homelab-app1 / VM 110，`http://homelab-app1.mouriya.lan:9120` | Server `Local` 是同机 Periphery；其余 Server 以 `ls servers` 为准 |
 | `trading` | trading-agent / VM 130，`http://trading-agent.mouriya.lan:9120` | 独立 Core，workload 见 `homelab-trading` skill |
 | `nekoringo` | nekoringo1 `218.33.108.254`，由 `mouriya-s-lab/nekoringo-iac` 的 `apps/komodo` 部署 | 专用主机，不属 homelab；Server `nekoringo1`（Core 与边缘服务）、`nekoringo2`（生产与测试 workload） |
 

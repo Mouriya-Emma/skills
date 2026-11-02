@@ -1,6 +1,6 @@
 # Containers and Periphery Servers
 
-Core selection and `-p` are in `../SKILL.md`; profile problems are in `endpoints.md`. Server and container names are scoped to their Core. Homelab's `Local` is moat-app1 / VM 110 and `browser` is VM 104; rediscover rather than reusing those names on another Core. The Nekoringo Core's Servers `nekoringo1` and `nekoringo2` are never homelab Servers. Trust Server names and status only after a fresh `ls servers` (or REST `ListServers`) on that Core.
+Core selection and `-p` are in `../SKILL.md`; profile problems are in `endpoints.md`. Server and container names are scoped to their Core. Homelab's `Local` is homelab-app1 / VM 110 and `browser` is VM 104; rediscover rather than reusing those names on another Core. The Nekoringo Core's Servers `nekoringo1` and `nekoringo2` are never homelab Servers. Trust Server names and status only after a fresh `ls servers` (or REST `ListServers`) on that Core.
 
 ## Locate the container and its parent
 
