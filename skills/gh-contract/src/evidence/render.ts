@@ -111,7 +111,8 @@ export type RecordDetail = { readonly record: EvidenceRecord; readonly stdout: {
 function renderDetail(d: RecordDetail, tailLines: number): string {
   const r = d.record;
   const out: string[] = [];
-  const rows = `#${r.rows.join(" #")}`;
+  // "#N" would be autolinked to issue N, so rows render as "行 N".
+  const rows = `行 ${r.rows.join("、")}`;
   if (r.capture.kind === "run") {
     const c = r.capture.completion;
     const exit = c.kind === "exited" ? `exit ${c.code}` : c.kind === "timeout" ? `超时 ${c.seconds}s` : `信号 ${c.signal}`;
@@ -137,7 +138,7 @@ function renderImages(check: CheckResult): string[] {
     const linked = r.steps.flatMap((s) => (s.status.kind === "linked" ? [{ step: s.rule.step, record: s.status.record }] : []));
     const withImages = linked.filter((l) => l.record.attachments.length > 0);
     if (withImages.length === 0) continue;
-    out.push("", `#${r.row.id} ${r.row.role} · ${r.row.covers.map((c) => `结果 ${c}`).join("、") || "卫生"} · ${r.row.face}`, "");
+    out.push("", `行 ${r.row.id} ${r.row.role} · ${r.row.covers.map((c) => `结果 ${c}`).join("、") || "卫生"} · ${r.row.face}`, "");
     const before = withImages.find((l) => l.step === "before");
     const after = withImages.find((l) => l.step === "after");
     if (before !== undefined && after !== undefined) {
@@ -161,10 +162,10 @@ export function renderPack(pack: Pack, details: readonly RecordDetail[], check: 
   const out: string[] = [PACK_TITLE, ""];
   out.push(`> 由 \`ghc\` 生成 · issue ${pack.issue} · 正文修订 ${pack.issueRev} · ${pack.linked}/${pack.total} 行齐全 · 生成于 ${pack.generatedAt}`);
   out.push(`> 检出 ${pack.heads.map((h) => `${repoKey(h.repo)}@${h.head}`).join(", ") || "无"}`, "");
-  out.push("| 验收 | 面 | 覆盖 | 角色 | 步骤 | 状态 | 命令 | 结果 |", "|---|---|---|---|---|---|---|---|");
+  out.push("| 行 | 面 | 覆盖 | 角色 | 步骤 | 状态 | 命令 | 结果 |", "|---|---|---|---|---|---|---|---|");
   for (const r of pack.rows) {
     const covers = r.covers.length === 0 ? "卫生" : r.covers.map((c) => `结果 ${c}`).join("、");
-    out.push(`| #${r.row} | ${r.face} | ${covers} | ${r.role} | ${r.step} | ${r.status} | ${r.command === null ? "—" : cellCode(r.command)} | ${cellText(r.result)} |`);
+    out.push(`| ${r.row} | ${r.face} | ${covers} | ${r.role} | ${r.step} | ${r.status} | ${r.command === null ? "—" : cellCode(r.command)} | ${cellText(r.result)} |`);
   }
   out.push(...renderImages(check));
   if (details.length > 0) out.push("", ...details.map((d) => renderDetail(d, tailLines)).join("\n\n").split("\n"));
@@ -198,7 +199,7 @@ export function parsePack(text: string): Pack | null {
   const rows: PackRow[] = [];
   for (const r of table.rows) {
     const [rowText, face, coversText, role, step, status, command, result] = r.cells as [string, string, string, string, string, string, string, string];
-    const n = Number(rowText.replace(/^#/, ""));
+    const n = Number(rowText);
     if (!Number.isInteger(n) || !isFace(face) || !isRole(role) || !isStep(step)) return null;
     const st = STATUSES.find((s) => s === status);
     if (st === undefined) return null;

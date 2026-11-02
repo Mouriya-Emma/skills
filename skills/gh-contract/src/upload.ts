@@ -1,14 +1,14 @@
-// Evidence images become GitHub attachments through the installed gh-attachment skill.
+// Evidence images become GitHub attachments through the gh-attachment skill, installed next to this one.
 
 import { stat } from "node:fs/promises";
-import { homedir } from "node:os";
 import { extname, join } from "node:path";
 import { IMAGE_TYPES } from "./model.ts";
 import { EnvError, run } from "./proc.ts";
 import { type Repo, repoKey } from "./ref.ts";
 import type { Attachment } from "./evidence/record.ts";
 
-const UPLOADER = join(homedir(), ".claude", "skills", "gh-attachment", "bin", "gh-attachment");
+/** `<skills>/gh-contract/src` → `<skills>/gh-attachment/bin/gh-attachment`, both in the source repo and when installed. */
+const UPLOADER = join(import.meta.dir, "..", "..", "gh-attachment", "bin", "gh-attachment");
 
 export async function uploadAttachment(repo: Repo, file: string): Promise<Attachment> {
   const contentType = IMAGE_TYPES[extname(file).toLowerCase()];
