@@ -28,7 +28,7 @@ Back up before a Core Compose redeploy, FerretDB/Postgres upgrade or host migrat
 km -p "$core" db backup
 ```
 
-`db backup` writes a timestamped backup folder and then, when `max_backups > 0`, prunes the oldest folders above the limit — a normal backup can delete an older recovery point (`max_backups = 0` disables this). Both current Cores run with `backups_folder = /backups` (mounted from `/etc/komodo/backups` on the host) and `max_backups = 14`; re-check effective configuration rather than trusting these values.
+`db backup` writes a timestamped backup folder and then, when `max_backups > 0`, prunes the oldest folders above the limit — a normal backup can delete an older recovery point (`max_backups = 0` disables this). Both current Cores run with `backups_folder = /backups` and `max_backups = 14`; the host side of `/backups` is `/data/komodo/backups` on the homelab Core (moat-app1) and `/etc/komodo/backups` on the trading Core. The system Procedure `Backup Core Database` exists on both Cores with its schedule declared off (homelab-komodo#186), so no backup runs unless requested; re-check effective configuration rather than trusting these values.
 
 The Core execution alternative is:
 
