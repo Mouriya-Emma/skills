@@ -26,7 +26,7 @@ Use this to locate declarations, not as proof a guest is running.
 
 ### homelab-tf
 
-DNS/DHCP (CT 312), Step-CA (CT 313), the homelab Komodo Core and its `Local` Server (VM 110 moat-app1), the browser host (VM 104), and trading-agent with the independent trading Core (VM 130). OMV (VM 101) is outside the TF lifecycle; its Periphery is Server `omv`, whose Stacks come from workload repos. Retired and stopped: OpenBao (CT 314), app01 (VM 102), agent-runtime (VM 103), nanoclaw (VM 106), moat workload hosts (VM 111–113). Static CT/PVE identities come from `network/identities.yaml`.
+DNS/DHCP (CT 312), Step-CA (CT 313), the homelab Komodo Core and its `Local` Server (VM 110 homelab-app1), the browser host (VM 104), and trading-agent with the independent trading Core (VM 130). OMV (VM 101) is never managed by IaC (homelab-tf `nas/` is only a placeholder that keeps IaC from claiming it); it runs its own Periphery behind the Core's Server record `omv`, whose Stacks come from workload repos. Retired and stopped: OpenBao (CT 314), app01 (VM 102), agent-runtime (VM 103), nanoclaw (VM 106), moat workload hosts (VM 111–113). Static CT/PVE identities come from `network/identities.yaml`.
 
 ### vctcn
 
