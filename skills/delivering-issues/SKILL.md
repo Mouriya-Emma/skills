@@ -5,7 +5,7 @@ description: 用户要求按序串行交付一组 GitHub issue 时的编排流�
 
 # delivering-issues
 
-本 skill 把一组 issue 逐个推进到「PR 已合并、issue 已关闭、合并生效处验收通过」，或以有据可查的 no-code 理由关闭。它只规定编排：谁实现、谁审、谁验收、何时合并、设计缺口怎么裁、记录留在哪里。PR 正文与证据形式按 `skill://writing-pr`，review 的 gate 与裁决按 `skill://review-pr`，讨论位置按 `~/.claude/rules/github-issue-pr-routing.rule.md`，完整抓取按 `~/.claude/rules/gh-full-fetch-issues-prs.rule.md`，运行验证强度按 `~/.claude/rules/runtime-verification-required.rule.md`。
+本 skill 把一组 issue 逐个推进到「PR 已合并、issue 已关闭、合并生效处验收通过」，或以有据可查的 no-code 理由关闭。它只规定编排：谁实现、谁审、谁验收、何时合并、设计缺口怎么裁、记录留在哪里。PR 正文与证据形式按 `skill://writing-pr`，review 的 gate 与裁决按 `skill://review-pr`，讨论位置按 `~/.claude/rules/git.rule.md` 的「GitHub issue / PR routing rule」，完整抓取、gate 有效性与合并前提用 `skill://gh-contract` 的 `ghc`，运行验证强度按 `~/.claude/rules/runtime-verification-required.rule.md`。
 
 issue 从哪来——`writing-complex-issues` 产出的树、手写的列表、导入的工单、上个会话遗留——不改变任何步骤；它们可以有也可以没有 parent，可以分属不同 repo。每一项都按「逐项分类」核实实时状态，不因来源假定它尚未完成或必然需要代码。
 
@@ -24,7 +24,7 @@ issue 从哪来——`writing-complex-issues` 产出的树、手写的列表、�
 - APPEND_SYSTEM 里「亲自写核心、外围委派」等实现义务作用于 owner。编排者不以「核心应由我写」为由收回实现，也不因此停下来等上游改规则。
 - **设计权威文件**：设计文档，以及设计文档或 umbrella 指定为契约源、且不在产品源码目录里的类型声明（例如 `spec/types/`）。只有编排者在裁定时编辑它们；issue 正文即使写着「组件内歧义由 child 在 PR 里写进所属章节」，owner 也改为上报编排者。契约源位于产品源码里时，编排者把裁定写进设计文档与 issue，类型改动由 owner 实现。调用方随契约迁移属于实现，归 owner。
 - 没有指定设计文档的 issue，issue body 就是契约，裁定改写 body。
-- 交付物只有设计权威文件的清单项，由编排者兼任 owner：亲自写文档与契约类型、开 PR（`writing-pr` 按实际 diff 选模板：只改文档用纯文档模板，含类型声明用标准模板）、按授权合并；review 与验收照常由全新的 `task:mid` 做。
+- 交付物只有设计权威文件的清单项，由编排者兼任 owner：亲自写文档与契约类型、开 PR（`writing-pr` 按该项 issue 的类型选模板：只改给人读的文档时 issue 是无代码变更类型，含类型声明时是标准类型）、按授权合并；review 与验收照常由全新的 `task:mid` 做。
 - **reviewer 与 `review-pr` 的组合**：本 skill 的 reviewer 同时是 `review-pr` 的主审和执行层。它自己完成 Gate 5，不再派子代理；按用户要求把结论直接发到 PR thread，这一点改写 `review-pr`「执行层不创建 GitHub 对象」的限制。编排者保留两件事：核实已发布的发现，以及合并授权。
 - 编排者可以用其他 task 档位调查、跑探针；调查不写进 repo，也不推进另一个 issue。
 
@@ -38,9 +38,9 @@ issue 从哪来——`writing-complex-issues` 产出的树、手写的列表、�
 | 设计记录位置 | 有 parent/umbrella 时用它；没有时用当前 issue |
 | 策略原文 | `~/Ext/code/omp-config/agent/APPEND_SYSTEM.md` 全文，与当前 system prompt 的指定区块（见 briefs.md） |
 
-1. 完整抓取 parent 与清单里每个 issue（body、全部 comment、图边与关联 PR），读各目标 repo 的 `AGENTS.md` / `CLAUDE.md` / rules，和各 issue 必读的设计章节全文。
+1. 用 `ghc fetch` 完整抓取 parent 与清单里每个 issue（body、全部 comment、图边与关联 PR），读各目标 repo 的 `AGENTS.md` / `CLAUDE.md` / rules，和各 issue 必读的设计章节全文。
 2. 对每个 issue 做「逐项分类」的粗分。
-3. `todo` 建全套：每个 issue 一项，有 parent 时再加一项「树关闭验证」。
+3. `todo` 建全套：每个 issue 一项；有 parent 时，树里的总体验收 issue 是清单最后一项，再加一项「树关闭」。
 4. 写中心计划（结构见「记录与恢复」），写完读回一次。
 5. 用户只要求「安排」「计划」，或本 skill 是编排者自行匹配到的，停在这里汇报计划，等用户要求执行；用户已要求按本流程执行就直接进入第一项。开始之后不再向用户提问。
 
@@ -52,6 +52,7 @@ issue 从哪来——`writing-complex-issues` 产出的树、手写的列表、�
 
 | 实时状态 | 处置 |
 |---|---|
+| 总体验收 issue（`类型：总体验收`） | 不派 owner、不开 PR，按 §7 处理 |
 | open，没有关联 PR | 派 owner |
 | open，已有本任务被授权且能够维护的 PR（本流程所开，或其作者明确交给本任务；closing 指向本 issue） | 派 owner 或续作 owner 沿用该 PR |
 | open，已有本任务无权维护的 PR（他人仍在推进，或无推送权限） | 不改动其 branch；owner 另开 PR，编排者在旧 PR 留 comment 说明原因并链接新 PR |
@@ -121,28 +122,28 @@ owner、reviewer、验收者上报的契约问题，以及编排者核实 gate �
 
    设计 commit 进入默认分支前，第 5 步发布的设计修正 comment 就是该裁定的权威；commit 与 comment 都记进中心计划的恢复点。裁定只影响后续清单项时，commit 随明确承担该结果、且在同一 repo 的那一项的 PR 落地（第 5 步已把义务写进它的 body）。承载它的 PR 未合并就关闭，或没有这样的承接项时，立即插入一个只改设计权威文件的清单项作为下一项，由编排者兼任 owner；不把设计 commit 搭进无关清单项的 PR。默认分支先行的契约 commit 让调用方编译失败、而承担迁移的 PR 未合并就关闭时，下一项是用 `writing-issue` 开出的调用方迁移 issue，优先于其他项。
 
-5. 在设计记录位置发设计修正 comment（写法按 `writing-complex-issues` 的 [comment-layers.md](../writing-complex-issues/references/comment-layers.md)）：裁定、依据、被否方案及理由、commit 链接、已知的暂时失败。同步替换活跃正文里受影响的内容：umbrella 的契约区块；裁定给某个 issue 新增义务或改变验收时，该 issue 的预期结果、范围与验收表；清单里后续 issue 引用了被改条款的快照。每个被改的 issue 发决策 comment。
+5. 在设计记录位置发设计修正 comment（写法按 `writing-complex-issues` 的 [comment-layers.md](../writing-complex-issues/references/comment-layers.md)）：裁定、依据、被否方案及理由、commit 链接、已知的暂时失败。同步替换活跃正文里受影响的内容：umbrella 的契约区块；裁定给某个 issue 新增义务或改变验收时，该 issue 的预期结果、范围与验收表；清单里后续 issue 中指向被取代条款的契约引用，改指新的设计修正 comment。每个被改的 issue 发决策 comment。
 6. 通知 owner 同步后继续（模板「设计裁定通知」）；正在跑的 reviewer 和验收者同步告知。按 §4 的有效性规则，依赖旧契约的 gate 结论失效。
 
 ### 3. PR 就绪与门禁
 
-owner 报告 PR URL、HEAD 与 closing issue 后，编排者用实时来源（`gh pr view` 或完整抓取）核对：PR open，目标 repo 与 base 分支正确，HEAD 与报告一致，恰好关闭当前 issue。`pr://` 这类缓存可能滞后，不作为依据。
+owner 报告 PR URL、HEAD 与 closing issue 后，编排者跑 `ghc lint <PR>`（身份与模板），并用 `ghc fetch` 的实时 payload 核对：PR open，目标 repo 与 base 分支正确，HEAD 与报告一致，HEAD 上 `evidence/complete` 为 success。`pr://` 这类缓存可能滞后，不作为依据。
 
 同一批里用 `task` 派两名全新的隔离 `task:mid`（模板见 briefs.md）：
 
-- **reviewer**：在钉死的 HEAD 上执行 Gate 1–5，首个失败即停；以 issue 契约为尺，不扩大范围；结论连同所依据的输入、首个失败 gate、`file:line`、复现与下一责任人发到 PR thread。针对编排者所提交 commit 的发现，下一责任人写编排者。
-- **验收者**：在干净的 detached checkout 上确认 HEAD 后，经该 issue 的真实用户入口独立观察每条预期结果的正负路径：纯库用固定输入的一次性 driver 调用公开 API；CLI 走真实命令；Web 按 `skill://agent-browser` 走真实用户路径；纯文档 PR 核对文档间语义与引用。不复用作者的 driver 与测试。PASS 或 NOT ACCEPTED（附复现）都算完成交付，报告给编排者，不写 GitHub。
+- **reviewer**：在钉死的 HEAD 上执行 Gate 1–5，首个失败即停；以 issue 契约为尺，不扩大范围；结论 comment 的第一行是 `ghc gate header <PR> --kind review` 的输出，其后写首个失败 gate、`file:line`、复现与下一责任人，发到 PR thread。针对编排者所提交 commit 的发现，下一责任人写编排者。
+- **验收者**：在干净的 detached checkout 上确认 HEAD 后，经该 issue 的真实用户入口独立观察每条预期结果的正负路径：纯库用固定输入的一次性 driver 调用公开 API；CLI 走真实命令；Web 按 `skill://agent-browser` 走真实用户路径；无代码变更 PR 核对文档间语义与引用。不复用作者的 driver 与测试。PASS 或 NOT ACCEPTED（附复现）都算完成交付，报告给编排者，不写 GitHub。
 
 两者都钉死同一个 HEAD，HEAD 一变立即停下报告。gate 运行期间 owner 不推送；修复先在本地准备，等本轮结论出来再推。
 
 ### 4. 消化结论与修复轮
 
 - reviewer 已发布的发现，编排者按 `review-pr`「消化报告」核实：对照 diff、契约与设计记录，再按 §2 分类。被驳回或改判的发现，由编排者在 PR thread 发 comment 写明依据与适用范围（模板「驳回或改判 review 发现」）。
-- 验收结论由编排者发到 PR thread（模板「独立验收结论」），标明它不替代作者证据；失败附复现。
-- 范围内的缺陷与证据缺口交给 owner（或续作 owner），附 PR comment 链接。owner 在原 branch/PR 修复，把 body 的实现说明与证据更新到当前 HEAD，另发重试评论（`writing-pr` 模板）。针对编排者 commit 的发现，编排者在自己的 worktree 修改并推到该 branch。范围外的发现按 `review-pr` 另开 issue，不塞进本 PR。
+- 验收结论由编排者发到 PR thread（模板「独立验收结论」，第一行是 `ghc gate header <PR> --kind 验收` 的输出），标明它不替代作者的证据包；失败附复现。
+- 范围内的缺陷与证据缺口交给 owner（或续作 owner），附 PR comment 链接。owner 在原 branch/PR 修复，更新正文的实现说明，在新 HEAD 上重新采集并 `ghc ev publish`，另发重试评论（`writing-pr` 模板）。针对编排者 commit 的发现，编排者在自己的 worktree 修改并推到该 branch。范围外的发现按 `review-pr` 另开 issue，不塞进本 PR。
 - 某个 gate 已确定失败时，可以停掉同轮另一个还在跑的 gate，让 owner 推修复。
 
-**有效性规则**：gate 结论只对它观察的输入有效。reviewer 与验收者在结论里写明这些输入（HEAD、base 分支、issue body 修订或最近的决策 comment、设计权威 commit 或 comment），恢复时据此判断旧结论是否仍有效。
+**有效性规则**：gate 结论只对它观察的输入有效。结论 comment 第一行由 `ghc gate header` 生成，记下 HEAD、base 分支、issue 正文修订与设计权威；`ghc gate list <PR>` 据此判断每条结论是否仍有效，HEAD、base、issue 正文修订任一改变即失效。下表其余输入（PR 正文、编排者的裁定与驳回、适用的决策 comment、设计权威版本）由编排者在恢复和授权前核对。
 
 | gate | 有效的前提（任一改变即失效） |
 |---|---|
@@ -153,20 +154,20 @@ owner 报告 PR URL、HEAD 与 closing issue 后，编排者用实时来源（`g
 
 ### 5. 合并授权
 
-同时满足才授权：review Gate 1–5 通过的 PR comment 与验收 PASS 都对当前输入有效；验收结论已发到 PR；编排者刚用实时来源确认 PR 仍 open、base 分支未变、HEAD 未变、可合并、repo 要求的 checks 通过、恰好关闭当前 issue。PR 不可合并（冲突或落后于强制要求）时，owner 整合默认分支，产生新 HEAD，按有效性规则重做 gate。
+同时满足才授权：验收结论已发到 PR；`ghc merge-ready <PR> --issue <当前 issue> --head <HEAD> --base <base 分支> --require-gate review,验收` 退出码 0，即 PR 仍 open、base 与 HEAD 未变、可合并、repo 要求的 checks 通过、证据状态 success、恰好关闭当前 issue、review 与验收各有对当前输入有效的 PASS；上表中 `ghc` 不判断的输入也未变化。PR 不可合并（冲突或落后于强制要求）时，owner 整合默认分支，产生新 HEAD，按有效性规则重做 gate。
 
 授权是编排者发给 owner 的一条消息（模板「合并授权」），写明精确 HEAD 与所依据的 review、验收链接，要求变化即停。owner 用 `gh pr merge <N> --merge --match-head-commit <HEAD>` 合并（repo 另有合并方式时照 repo），回报合并 SHA 与 issue 状态。授权未结期间（已发出、owner 尚未回报结果），编排者不改动当前项的任何 gate 输入；确需改动时，先发消息撤回授权，等 owner 确认尚未合并后再改。owner 回报已经合并时按 §6 继续，合并后验收以改动后的输入为准。reviewer 通过、验收通过、测试全绿、owner 自述都不是授权，只有编排者能授权。默认分支最新提交在授权后前进带来的整合风险由 §6 的验收覆盖。
 
 ### 6. 合并之后
 
 1. 用实时来源确认 PR 已 MERGED、issue 经 closing link 已关闭（`review-pr` Gate 6）。
-2. 派全新的 `task:mid` 在合并生效处验收（模板「合并后验收与树关闭验收」）：代码库在合并提交（已关闭项用默认分支当前最新提交）的干净 checkout 上，部署型 repo 在 repo 交付规则规定的目标环境里，观察该 issue 的预期结果，并跑 repo 校验。owner 合并后自己跑的结果不算。编排者把结论作为 comment 发到已关闭的 issue（模板「合并后验收结论」）。
+2. 派全新的 `task:mid` 在合并生效处验收（模板「合并后验收」）：代码库在合并提交（已关闭项用默认分支当前最新提交）的干净 checkout 上，部署型 repo 在 repo 交付规则规定的目标环境里，观察该 issue 的预期结果，并跑 repo 校验。owner 合并后自己跑的结果不算。编排者把结论作为 comment 发到已关闭的 issue（模板「合并后验收结论」）。
 3. 判定：该 issue 的预期结果都成立即通过；与本次改动无关的失败如实记录，并按 `writing-issue` 另开 issue，不阻塞本项、不宣称已修复。该 issue 的结果不成立时进入 `Correcting`：已合并的 PR 不回写，用 `writing-issue` 开修正 issue，作为当前项的一部分按本流程交付；它合并后，在新的合并提交上重验原 issue 与修正 issue 的结果，都通过后两者一起完成。
 4. 更新中心计划和 `todo`，进入下一项。
 
 ### 7. 树关闭
 
-有 parent 时，最后一项完成、且没有尚未进入默认分支的设计 commit 后，核对每个 child 已合并关闭或有 no-code 理由，代码在默认分支上；派全新的 `task:mid` 按 parent 的「关闭验证」逐行验收并报告编排者（模板「合并后验收与树关闭验收」），编排者把结论发到 parent；全部成立后按 `review-pr` Gate 6 关闭 parent。有行不成立时，按 §6 第 3 步开 issue 补上，交付后重验。
+有 parent 时，清单最后一项是树里的总体验收 issue。它没有 PR，也不派 owner：最后一个实现项完成、且没有尚未进入默认分支的设计 commit 后，派全新的 `task:mid` 按模板「总体验收」，在包含全部 child 合并提交的检出上（部署型 repo 在 repo 交付规则规定的目标环境里）用 `ghc ev run <总体验收 issue> --checkout <各 repo 检出>` 逐行采集，报告给编排者；编排者跑 `ghc ev publish <总体验收 issue>` 发布证据包。验收发现组合缺陷时，按 §6 第 3 步开修复 issue，挂到树下并加入总体验收 issue 的组合对象与依赖，交付后在新组合状态上重跑。`ghc merge-ready <树根> --tree` 退出码 0 后，编排者关闭总体验收 issue，再按 `review-pr` Gate 6 关闭 parent。
 
 清单全部完成后向用户报告：每项的结果与 PR、issue、验收 comment 链接，树关闭结论，以及意外写回编排者工作 checkout 的路径。
 

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# ghc: run the gh-contract CLI from this installed skill directory.
+set -euo pipefail
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+exec bun "$here/src/main.ts" "$@"

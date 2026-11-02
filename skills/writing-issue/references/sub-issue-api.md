@@ -2,7 +2,7 @@
 
 ## 前置：完整上下文与真实 ID
 
-先按 `~/.claude/rules/gh-full-fetch-issues-prs.rule.md` 完整抓取 parent、child 及已有 parent 的对象和附件到本地；核对 repo、issue 身份与当前边。从该完整 payload 取得真实 GraphQL node ID，分别设置 `PARENT_ID`、`CHILD_ID`；re-parent 另设 `OLD_PARENT_ID`。不要只查询 `issue { id }`，也不要假设本地 payload 的固定 JSON schema。完整抓取工具或 ID 不可用时先报告缺口，不凭编号合成 ID。
+先用 `ghc fetch`（`skill://gh-contract`）完整抓取 parent、child 及已有 parent 的对象和附件到本地；核对 repo、issue 身份与当前边。从该完整 payload 取得真实 GraphQL node ID，分别设置 `PARENT_ID`、`CHILD_ID`；re-parent 另设 `OLD_PARENT_ID`。不要只查询 `issue { id }`，也不要假设本地 payload 的固定 JSON schema。ID 不可用时先报告缺口，不凭编号合成 ID。
 
 仅对已授权的目标图操作。parent 与 child 都必须是 Issue；跨 repo（同 org）可连接，closed parent 与 closed child 也可连接，不需要改 body。
 
@@ -17,7 +17,7 @@ gh api graphql -f query='
 
 `-f` 用于字符串 ID；需要整数 GraphQL 变量时用 `-F`，否则会出现 `Variable $num of type Int! was provided invalid value`。
 
-mutation 响应不代替完整验证。图已变化时重新完整抓取受影响对象，确认具体 parent/child 身份及所有边，不能仅靠 `subIssues.totalCount` 判断。
+mutation 响应不代替完整验证。图已变化时重新 `ghc fetch` 受影响对象，确认具体 parent/child 身份及所有边，不能仅靠 `subIssues.totalCount` 判断。
 
 ## re-parent
 

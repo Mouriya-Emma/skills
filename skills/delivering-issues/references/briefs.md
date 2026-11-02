@@ -38,14 +38,12 @@
 # 必读（动手前通读全文，不以 grep 代替）
 - issue 全文与全部 comment；<parent 链接> 的契约与设计修正 comment。
 - issue 列出的全部设计章节、契约类型与例子；近期契约 commit 与尚未进入默认分支的裁定：<SHA / comment 链接>。
-- repo rules；实现前读 `skill://writing-pr`，按 issue 的预期结果和验收表规划证据。
+- repo rules；实现前读 `skill://writing-pr` 与 `skill://gh-contract`，用 `ghc ev plan <issue>` 规划证据。
 
 # 交付
 - 实现整个 issue，核心代码由你亲自写；其余是否委派、怎样拆由你按策略原文决定。
 - 一个 PR，首行 `Closes <owner>/<repo>#<N>`，只关闭这一个 issue。
-- PR body 按 writing-pr 选模板。非纯文档 PR 用四层证据，其中：
-  - Layer 2 读回关键落地内容：`git show <HEAD>:<path> | nl -ba` 的相关行加说明。`git diff --stat`、文件清单、符号名清单不算。
-  - Layer 4 逐条对应 issue 验收行，经该 issue 的真实用户入口观察正负路径的具体输出：纯库用固定输入的一次性 driver 调用公开 API，CLI 走真实命令，Web 按 `skill://agent-browser` 走真实用户路径并附截图。测试 pass 数只放「卫生检查」；没有接入被测路径的 mock 或计数器不是证据。
+- PR 正文按 writing-pr 选模板。标准 PR 的证据只经 `ghc ev run` / `ghc ev attach` 采集（Web 按 `skill://agent-browser` 走真实用户路径，截图经 `--artifacts` 采集）；`ghc ev check <issue>` 退出码 0 才开 PR，开 PR 后 `ghc lint <PR>` 与 `ghc ev publish <PR>` 退出码都是 0。
 - 跑 issue 指定的命令与 repo 校验命令。
 
 # 契约问题
@@ -53,14 +51,14 @@
 发现本 issue 无需代码（已满足、重复）或需要拆分时，带证据报告编排者，不开空 PR。
 
 # 生命周期
-- PR 就绪后报告：PR URL、HEAD、base 分支、closing issue、证据摘要、风险。之后保持在线，等 review 反馈与合并授权。
+- PR 就绪后报告：PR URL、HEAD、base 分支、closing issue、证据包链接、风险。之后保持在线，等 review 反馈与合并授权。
 - 编排者派的 review 与验收运行期间不推送；修复先在本地准备，等通知再推。推送被拒（远端已被别人改动）时停下报告。
-- 收到修复要求：读 PR thread 里对应的 comment，在原 branch/PR 修复，把 body 的实现说明与证据更新到当前 HEAD，按 writing-pr 模板发重试评论，报告新 HEAD。
-- 只有收到编排者的合并授权才合并：用 `gh pr merge <N> --merge --match-head-commit <HEAD>`（repo 另有合并方式时照 repo），回报合并 SHA 与 issue 状态。HEAD 或 base 分支与授权不符、PR 不可合并、checks 未过，或编排者撤回授权时，停下报告。
+- 收到修复要求：读 PR thread 里对应的 comment，在原 branch/PR 修复，更新正文的实现说明，在新 HEAD 上重新采集并 `ghc ev publish <PR>`，按 writing-pr 模板发重试评论，报告新 HEAD。
+- 只有收到编排者的合并授权才合并：先跑授权消息里给出的 `ghc merge-ready` 命令，退出码 0 才用 `gh pr merge <N> --merge --match-head-commit <HEAD>`（repo 另有合并方式时照 repo），回报合并 SHA 与 issue 状态。`ghc merge-ready` 非零，或编排者撤回授权时，停下报告。
 - 合并后不开始下一个 issue。不向用户提问。
 
 # 完成标准
-按 writing-pr 所选模板，issue 每条预期结果都在 PR body 里有对应证据；repo 校验通过；PR 经编排者授权合并，issue 经 closing link 关闭。
+按 writing-pr 所选模板，`ghc ev publish <PR>` 退出码 0（证据包齐全）；repo 校验通过；PR 经编排者授权合并，issue 经 closing link 关闭。
 ```
 
 ## 续作 owner
@@ -92,7 +90,7 @@
 <APPEND_SYSTEM.md 全文与指定 system prompt 区块，逐字>
 
 # 必读
-完整抓取 issue 与 PR（body、全部 comment、review、checks、图边）；<parent 链接> 的契约与设计修正 comment <链接>；issue 必读的设计章节、类型与例子全文；repo rules。以前各轮的 comment 是已发布记录，结论由你独立作出。编排者驳回或改判过的主张，没有新证据时不重复提出；你发现新的前提、新的反例或契约已变更时可以重新提出，并写明新在哪里、同时告知编排者。
+用 `ghc fetch` 抓取 issue 与 PR（body、全部 comment、review、checks、图边）；<parent 链接> 的契约与设计修正 comment <链接>；issue 必读的设计章节、类型与例子全文；repo rules。以前各轮的 comment 是已发布记录，结论由你独立作出。编排者驳回或改判过的主张，没有新证据时不重复提出；你发现新的前提、新的反例或契约已变更时可以重新提出，并写明新在哪里、同时告知编排者。
 
 # 做法
 - 在自己的工作目录里检出 <SHA>（detached），确认 `git rev-parse HEAD`，不相信继承来的 worktree。HEAD 变化立即停下，报告编排者。
@@ -103,7 +101,7 @@
 - 发现落在编排者提交的 commit（<SHA 列表>）上时，下一责任人写编排者。
 
 # 输出
-在 PR thread 发一条结论 comment：所依据的输入（HEAD、base 分支、issue body 修订或最近的决策 comment、设计权威 commit 或 comment）、各 gate 状态、首个失败 gate、`file:line`、可观察后果、复现命令、下一责任人。发错的内容另发更正 comment，不改原文。
+在 PR thread 发一条结论 comment：第一行是 `ghc gate header <PR> --kind review --result <PASS|FAIL@GateN> --design <设计权威 commit 或 comment>` 的输出，原样放在开头；其后写各 gate 状态、首个失败 gate、`file:line`、可观察后果、复现命令、下一责任人。发错的内容另发更正 comment，不改原文。
 不改代码、文档或 PR body，不合并。向编排者回报 comment URL、所依据的输入、gate 结果与未覆盖范围。
 ```
 
@@ -126,7 +124,7 @@ issue 全文（尤其预期结果与验收表）与决策 comment；<parent 链�
 
 # 做法
 - 在自己的工作目录里干净地检出 <SHA>（detached），确认 commit 与工作区干净后再运行，不相信继承来的 worktree。HEAD 变化立即停下报告。
-- 经该 issue 的真实用户入口逐条观察预期结果的正负路径：<纯库：在仓库外自写固定输入的一次性 driver 调用公开 API / CLI：真实命令 / Web：按 skill://agent-browser 走真实用户路径并截图 / 纯文档：核对文档间语义与引用>，涉及存储、文件、进程时用真实的。不复用作者的 driver 或测试。最后跑一次 repo 校验命令。
+- 经该 issue 的真实用户入口逐条观察预期结果的正负路径：<纯库：在仓库外自写固定输入的一次性 driver 调用公开 API / CLI：真实命令 / Web：按 skill://agent-browser 走真实用户路径并截图 / 无代码变更：核对文档间语义与引用>，涉及存储、文件、进程时用真实的。不复用作者的 driver 或测试。最后跑一次 repo 校验命令。
 - 作者的测试通过不算验收。发现缺陷时给出最小复现；NOT ACCEPTED 加复现就是完整交付，不要修代码。
 - 不改 repo，不写 GitHub；临时文件与数据用完清理。
 
@@ -134,13 +132,13 @@ issue 全文（尤其预期结果与验收表）与决策 comment；<parent 链�
 PASS 或 NOT ACCEPTED；所依据的输入（HEAD、base 分支、issue body 修订或最近的决策 comment、设计权威 commit 或 comment）；逐条预期结果 → 命令或操作 → 实际输出的对照；未覆盖项与原因。
 ```
 
-## 合并后验收与树关闭验收
+## 合并后验收
 
-`task`，`agent: task:mid`，`isolated: true`，名字如 `Issue<N>MergedAcceptance` 或 `Parent<N>ClosureAcceptance`。
+`task`，`agent: task:mid`，`isolated: true`，名字如 `Issue<N>MergedAcceptance`。
 
 ```markdown
 # 目标
-<合并后验收：<PR 链接> 已合并为 <默认分支> <merge SHA>，<issue 链接> 应已关闭。><已关闭项：<issue 链接> 已关闭，在 <默认分支> 当前最新提交 <SHA> 上验收。><树关闭：按 <parent 链接> 的「关闭验证」逐行验收，<默认分支> <SHA>。>在合并生效处独立验收。
+<合并后验收：<PR 链接> 已合并为 <默认分支> <merge SHA>，<issue 链接> 应已关闭。><已关闭项：<issue 链接> 已关闭，在 <默认分支> 当前最新提交 <SHA> 上验收。>在合并生效处独立验收。
 
 # 分工
 <共有块>
@@ -149,12 +147,37 @@ PASS 或 NOT ACCEPTED；所依据的输入（HEAD、base 分支、issue body 修
 <APPEND_SYSTEM.md 全文与指定 system prompt 区块，逐字>
 
 # 做法
-- 用实时来源确认相关 PR 为 MERGED、issue 为 CLOSED 且由该 PR 关闭。树关闭时逐个 child 确认：由合并的 PR 关闭，或 issue 上发布了持久的 no-code 理由。
-- 在 <对应提交的干净 checkout，按 lockfile 安装依赖 / repo 交付规则规定的目标环境> 上，经真实入口观察 <该 issue 的预期结果 / parent 关闭验证的每一行><；修正项时同时观察 <原 issue 链接> 的预期结果>，再跑 repo 校验命令。
+- 用实时来源确认相关 PR 为 MERGED、issue 为 CLOSED 且由该 PR 关闭。
+- 在 <对应提交的干净 checkout，按 lockfile 安装依赖 / repo 交付规则规定的目标环境> 上，经真实入口观察该 issue 的预期结果<；修正项时同时观察 <原 issue 链接> 的预期结果>，再跑 repo 校验命令。
 - 与本次改动无关的失败如实记录并说明为何无关，不宣称已修复。不改 repo，不写 GitHub；结论报告编排者，由编排者发布。
 
 # 输出
-PASS 或失败；所验提交；逐条预期结果或关闭验证行的命令与输出；无关失败；未覆盖项。
+PASS 或失败；所验提交；逐条预期结果的命令与输出；无关失败；未覆盖项。
+```
+
+## 总体验收
+
+`task`，`agent: task:mid`，`isolated: true`，名字如 `Tree<N>IntegrationAcceptance`。
+
+```markdown
+# 目标
+执行总体验收 issue <链接>（树根 <parent 链接>）：在全部 child 合并后的组合系统上，逐行采集它的验收表。各 repo 的检出：<owner/repo @ 默认分支 SHA，逐个列出>。
+
+# 分工
+<共有块>
+
+# 策略原文
+<APPEND_SYSTEM.md 全文与指定 system prompt 区块，逐字>
+
+# 做法
+- 先读 `skill://gh-contract`，跑 `ghc ev plan <总体验收 issue>`。
+- 每个 repo 在自己的工作目录里干净检出上面列出的 SHA，确认它包含该 repo 全部 child 的合并提交；部署型 repo 在 <repo 交付规则规定的目标环境> 上观察。
+- 逐行用 `ghc ev run <总体验收 issue> --row N --checkout <各 repo 检出> ... -- <命令>` 采集；截图用 `--artifacts`。child 的证据不算数，不复用作者的 driver 或测试。
+- `ghc ev check <总体验收 issue>` 退出码 0 才报告完成；缺陷给出最小复现，不修代码。
+- 除 `ghc` 上传截图附件外不写 GitHub；证据包由编排者发布。
+
+# 输出
+`ghc ev check` 的输出；逐行观察结论；发现的组合缺陷与复现；未覆盖项。
 ```
 
 ## 消息：设计裁定通知 owner
@@ -170,15 +193,16 @@ PASS 或失败；所验提交；逐条预期结果或关闭验证行的命令与
 
 ```markdown
 合并授权：<PR 链接> HEAD <SHA>，base 分支 <branch>。依据：review Gate 1–5 通过 <comment 链接>；独立验收 PASS <comment 链接>。
-仅当远端 PR 仍为 open、base 分支仍是 <branch>、HEAD 等于 <SHA>、可合并、repo 要求的 checks 通过、且只关闭 <issue 链接> 时，执行 `gh pr merge <N> --merge --match-head-commit <SHA>`，然后回报合并 SHA 与 issue 状态。任何一项不符就停下报告，不推新提交。在你回报结果前我不改动这些依据；确需改动时我会先发撤回，你收到撤回时若尚未合并就不再合并，并回复确认。合并后不要开始下一个 issue，合并后验收由我另派。
+先跑 `ghc merge-ready <PR> --issue <issue> --head <SHA> --base <branch> --require-gate review,验收`，退出码 0 才执行 `gh pr merge <N> --merge --match-head-commit <SHA>`，然后回报合并 SHA 与 issue 状态。非零就停下报告，不推新提交。在你回报结果前我不改动这些依据；确需改动时我会先发撤回，你收到撤回时若尚未合并就不再合并，并回复确认。合并后不要开始下一个 issue，合并后验收由我另派。
 ```
 
 ## PR comment：独立验收结论
 
 ```markdown
-## 独立验收（编排者发布，不替代作者 PR body 的证据）
+<`ghc gate header <PR> --kind 验收 --result <PASS|"NOT ACCEPTED"> --design <设计权威 commit 或 comment>` 的输出>
 
-HEAD：<SHA>；base 分支：<branch>；依据的契约：<issue body 修订或决策 comment>、<设计权威 commit 或 comment>
+## 独立验收（编排者发布，不替代作者的证据包）
+
 结论：<PASS / NOT ACCEPTED>
 
 | 预期结果 | 命令 / 操作 | 实际输出 | 判定 |

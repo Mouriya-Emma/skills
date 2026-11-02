@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Upload media files as GitHub attachments of a repository and print one
+# https://github.com/user-attachments/assets/<uuid> URL per file.
+# Uses the media endpoint gh itself uses for --attach; gh supplies its own
+# credential, nothing is extracted or printed.
+# Exit: 0 all uploaded, 1 an upload failed, 2 usage error.
+set -euo pipefail
+
+usage() {
+  echo "usage: gh-attachment <owner/repo> <file>..." >&2
+  echo "       media only: png jpg jpeg gif webp svg mp4 mov webm" >&2
+  exit 2
+}
+
+[[ $# -ge 2 ]] || usage
+repo=$1
+shift
+[[ $repo =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "gh-attachment: invalid repo '$repo'" >&2; usage; }
+
+mime_of() {
+  local ext
+  ext=$(printf '%s' "${1##*.}" | tr '[:upper:]' '[:lower:]')
+  case $ext in
+    png) echo image/png ;;
+    jpg | jpeg) echo image/jpeg ;;
+    gif) echo image/gif ;;
+    webp) echo image/webp ;;
+    svg) echo image/svg+xml ;;
+    mp4) echo video/mp4 ;;
+    mov) echo video/quicktime ;;
+    webm) echo video/webm ;;
+    *) return 1 ;;
+  esac
+}
+
+# Validate every file before uploading any.
+for f in "$@"; do
+  [[ -f $f ]] || { echo "gh-attachment: $f is not a file" >&2; exit 2; }
+  mime=$(mime_of "$f") || { echo "gh-attachment: $f is not a supported media type" >&2; exit 2; }
+  size=$(wc -c <"$f" | tr -d ' ')
+  if [[ $mime == video/* ]]; then max=$((100 * 1024 * 1024)); else max=$((10 * 1024 * 1024)); fi
+  ((size <= max)) || { echo "gh-attachment: $f is $size bytes, limit $max" >&2; exit 2; }
+done
+
+repository_id=$(gh api "repos/$repo" --jq .id) || { echo "gh-attachment: cannot read repository $repo" >&2; exit 1; }
+
+for f in "$@"; do
+  mime=$(mime_of "$f")
+  if ! url=$(gh api --hostname github.com --method POST \
+    https://uploads.github.com/user-attachments/assets \
+    --raw-field "name=$(basename "$f")" \
+    --raw-field "content_type=$mime" \
+    --raw-field "repository_id=$repository_id" \
+    -H 'Accept: application/vnd.github+json' \
+    -H 'Content-Type: application/octet-stream' \
+    --input "$f" \
+    --jq .url); then
+    echo "gh-attachment: upload of $f failed (404 usually means no write access to $repo, or a token GitHub does not accept for attachments)" >&2
+    exit 1
+  fi
+  [[ $url == https://github.com/user-attachments/assets/* ]] || { echo "gh-attachment: unexpected response for $f: $url" >&2; exit 1; }
+  echo "$url"
+done
