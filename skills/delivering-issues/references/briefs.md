@@ -6,7 +6,7 @@
 
 **分工**（逐字放进每个 brief 的 context）：
 
-> 用户要求按本流程交付，并显式改写了 APPEND_SYSTEM 的默认分工（依据其「User instructions take precedence」）：编排者不写任何实现代码与测试，负责串行门禁、设计裁定、设计权威文件与 issue 契约的编辑、派审与验收、核实 gate 结论、合并授权。设计权威文件指设计文档，以及被指定为契约源、且不在产品源码目录里的类型声明；只有编排者编辑它们。契约源在产品源码里时，编排者先裁定并写进文档与 issue，类型改动由 owner 实现。每个 issue 由一名独立隔离的 task:high 独占实现（含核心代码）、测试、PR、修复与按授权合并，并按自己的 system prompt 安排下级 subagent；交付物只有设计权威文件的项例外，由编排者兼任 owner。issue 严格串行，当前项在合并生效处验收通过前不开始下一项。每轮 review 由一名全新的隔离 task:mid 在一个 HEAD 上完成全部 Gate 1–5 并把结论直接发到 PR thread；独立验收由另一名全新的隔离 task:mid 完成并报告编排者。任何人不向用户提问；契约问题上报编排者。
+> 用户要求按本流程交付，并显式改写了 APPEND_SYSTEM 的默认分工（依据其「User instructions take precedence」）：编排者不写任何实现代码与测试，负责串行门禁、设计裁定、设计权威文件与 issue 契约的编辑、派审与验收、核实 gate 结论、合并授权。设计权威文件指设计文档，以及被指定为契约源、且不在产品源码目录里的类型声明；只有编排者编辑它们。契约源在产品源码里时，编排者先裁定并写进文档与 issue，类型改动由 owner 实现。每个 issue 由一名独立隔离的 task:high 独占实现（含核心代码）、测试、PR、修复与按授权合并，并按自己的 system prompt 安排下级 subagent；交付物只有设计权威文件的项例外，由编排者兼任 owner。issue 严格串行，当前项在合并生效处验收通过前不开始下一项。每轮 review 由一名全新的隔离 task:free1 在一个 HEAD 上完成全部 Gate 1–5 并把结论直接发到 PR thread；独立验收由另一名全新的隔离 task:free1 完成并报告编排者。任何人不向用户提问；契约问题上报编排者。
 
 **策略原文**：派工当时从文件和 system prompt 读出，逐字粘贴，不凭记忆复述、不挑条目、不改写成摘要：
 
@@ -74,7 +74,7 @@
 
 ## reviewer
 
-`task`，`agent: task:mid`，`isolated: true`，名字如 `Issue<N>ReviewRound<R>`。每轮新起。
+`task`，`agent: task:free1`，`isolated: true`，名字如 `Issue<N>ReviewRound<R>`。每轮新起。
 
 ```markdown
 # 目标
@@ -107,7 +107,7 @@
 
 ## 验收者
 
-`task`，`agent: task:mid`，`isolated: true`，名字如 `Issue<N>AcceptanceRound<R>`。每次新起。
+`task`，`agent: task:free1`，`isolated: true`，名字如 `Issue<N>AcceptanceRound<R>`。每次新起。
 
 ```markdown
 # 目标
@@ -134,7 +134,7 @@ PASS 或 NOT ACCEPTED；所依据的输入（HEAD、base 分支、issue body 修
 
 ## 合并后验收
 
-`task`，`agent: task:mid`，`isolated: true`，名字如 `Issue<N>MergedAcceptance`。
+`task`，`agent: task:free1`，`isolated: true`，名字如 `Issue<N>MergedAcceptance`。
 
 ```markdown
 # 目标
@@ -157,7 +157,7 @@ PASS 或失败；所验提交；逐条预期结果的命令与输出；无关失
 
 ## 总体验收
 
-`task`，`agent: task:mid`，`isolated: true`，名字如 `Tree<N>IntegrationAcceptance`。
+`task`，`agent: task:free1`，`isolated: true`，名字如 `Tree<N>IntegrationAcceptance`。
 
 ```markdown
 # 目标

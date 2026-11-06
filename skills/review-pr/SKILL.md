@@ -53,7 +53,7 @@ Gate 1–5 决定 open PR 是否可批准，按序检查，首个失败即停。
 
 ## OMP 执行层
 
-使用当前 `task` 工具的 `task:mid` 子代理执行只读代码审查，不使用禁用的 bundled `reviewer` 或省略 agent 字段后落到默认 `task`。不依赖旧插件 slash command，也不因磁盘上有插件文件就声称它在 OMP 可调用。
+使用当前 `task` 工具的 `task:free1` 子代理执行只读代码审查，不使用禁用的 bundled `reviewer` 或省略 agent 字段后落到默认 `task`。不依赖旧插件 slash command，也不因磁盘上有插件文件就声称它在 OMP 可调用。
 
 交给执行者的任务应包含：
 
@@ -65,7 +65,7 @@ Gate 1–5 决定 open PR 是否可批准，按序检查，首个失败即停。
 
 同一 diff 同一目的不重复分派。按实质独立范围拆任务，而不是固定凑多个角色。Main 核实发现并裁决，不能把子代理的结论直接当成已通过全部 gate。
 
-`task:mid` 实际不可用时报告 Gate 5 blocker，不偷偷安装插件或换用其他 agent；源码仍只从本地 checkout 读，GitHub 元数据仍走完整本地 payload。
+`task:free1` 实际不可用时报告 Gate 5 blocker，不偷偷安装插件或换用其他 agent；源码仍只从本地 checkout 读，GitHub 元数据仍走完整本地 payload。
 
 ## 消化报告
 
