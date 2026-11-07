@@ -19,7 +19,7 @@ issue 从哪来——`writing-complex-issues` 产出的树、手写的列表、�
 | 实现 owner | 每个 issue 一名新起的隔离 `task:high` | 该 issue 的全部实现（含核心代码）、测试、PR 与证据、修复、按授权合并；按自己的 system prompt 安排下级 subagent | 编辑设计权威文件；推进别的 issue；未经授权合并 |
 | reviewer | 每轮一名全新的隔离 `task:free1`，用完即弃 | 在一个 HEAD 上执行 `review-pr` 的全部 Gate 1–5，把结论直接发到 PR thread | 改代码、补作者证据、合并 |
 | 验收者 | 每次一名全新的隔离 `task:free1` | 在精确 HEAD 或合并生效处独立观察 issue 结果，向编排者报告 PASS / NOT ACCEPTED | 改代码、写 GitHub、合并 |
-| 顾问 | `discuss:steady` + `discuss:divergent`、`mentor:default`；探针用 `task:low` / `task:free1` | 设计缺口的正反论证与事实取证 | 裁定、编辑文档 |
+| 顾问 | `discuss:steady` + `discuss:divergent`、`mentor:default`；探针用 `task:low1` / `task:free1` | 设计缺口的正反论证与事实取证 | 裁定、编辑文档 |
 
 - APPEND_SYSTEM 里「亲自写核心、外围委派」等实现义务作用于 owner。编排者不以「核心应由我写」为由收回实现，也不因此停下来等上游改规则。
 - **设计权威文件**：设计文档，以及设计文档或 umbrella 指定为契约源、且不在产品源码目录里的类型声明（例如 `spec/types/`）。只有编排者在裁定时编辑它们；issue 正文即使写着「组件内歧义由 child 在 PR 里写进所属章节」，owner 也改为上报编排者。契约源位于产品源码里时，编排者把裁定写进设计文档与 issue，类型改动由 owner 实现。调用方随契约迁移属于实现，归 owner。
