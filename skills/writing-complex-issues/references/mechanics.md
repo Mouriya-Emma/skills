@@ -20,4 +20,4 @@ label 遵守目标 repo/preset 分类契约，不把别的 repo 的 `kind:code`�
 - 非 retroactive 树根正文末尾有 coordinator 徽章链接：指向树根自身编号，`cwd` 是树根所在 repo 已核实存在的本机 checkout 绝对路径并按查询值编码，没有裸 URL。
 - child 继承的树内新裁决条款以契约引用写入，且 `ghc fetch` 能展开；权威文档已承载的内容以必读章节（路径 + 章节锚点 + 用途）引用，没有复写或摘抄；结果用性质描述；最省事路径不能钻过验收表；只能实现后观察的已定方案结果有具名 child 的 assumption 验收行，没有预写的失败备选方案。
 - 全文没有未决问题、待定、unknown、「归 PR / 再说」、「清点后再开」占位或指向未来结论的 Depends：写作期缺口都经 decision-closure 取得事实或裁决，master record 有裁决、依据与被否方案。
-- 完整 thread 的 comment 层与对抗审查已交付；仅草稿任务可按入口规则延后，但不宣称树完成。
+- 完整 thread 的 comment 层已交付，作者自审已做完且发现都已改进正文；issue 里没有审查记录。仅草稿任务可按入口规则延后，但不宣称树完成。

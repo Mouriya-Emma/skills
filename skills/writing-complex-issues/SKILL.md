@@ -69,14 +69,14 @@ children 沿实现结构切：每个实现 child 是系统结构模型里的一�
 | 写或改 child；定核心/外围责任；选 audit / 总体验收类型与测试形态 | [child-body.md](references/child-body.md) |
 | 补齐决策、架构切片、log 义务或设计修正 thread | [comment-layers.md](references/comment-layers.md) |
 | 写作中发现遗漏或未知；全文有「归 PR 定 / 待定 / 再说」或目标级、契约级分叉 | [decision-closure.md](references/decision-closure.md) |
-| 树完成后的对抗审查；用户要求重验 | [adversarial-review.md](references/adversarial-review.md) |
+| 树写完后作者自审；用户要求重验 | [adversarial-review.md](references/adversarial-review.md) |
 | 发布、挂接、re-parent、label | [mechanics.md](references/mechanics.md) |
 
-只在相应工作不发生时跳过该文档；发布前自检总要过。除用户明确只要草稿外，完整 body + comment 层和对抗审查属于交付，不能把它们隐式留给下个会话。
+只在相应工作不发生时跳过该文档；发布前自检总要过。除用户明确只要草稿外，完整 body + comment 层属于交付，作者自审也须在本会话做完，不能隐式留给下个会话。
 
 ## 完成方式
 
 - 写不出的区块是写作期缺口：当场调查或裁决补齐，不以空话填充，也不登记成未决项。目标完备靠性质、外部契约、跨单元契约与目标级裁决，不靠穷举实现。
-- 对抗审查每轮换面，查实怀疑并记录反证；连续一轮无新发现才结束，零发现也记录。
+- 对抗审查是作者对已写树的自审，不是 issue 内容：issue 里不写审查记录、轮次或反证，发现只以正文修改落地，审查过程与落空的怀疑报告给操作员。每轮换面，查实怀疑；连续一轮无新发现才结束。
 - 操作员修正衡量尺时，先实证检查新解释，指出哪些旧产出复读了旧误解，再重扫全部产出；报告区分新发现、修正和重验通过。
 - 维护本方法时，用非本方法生成的真实工件做生成性基准，逐区块及 child/comment 层检查方法能否引出它；不拿自己的产出循环确认。具体方法在 adversarial-review。
