@@ -167,7 +167,11 @@ describe("evidence pack", () => {
       base: null,
     };
     const pack = toPack(check, "2026-11-03T00:00:02Z");
-    const text = renderPack(pack, [{ record, stdout: { text: "ok", total: 1 }, stderr: { text: "", total: 0 } }], check, 40);
+    const text = renderPack(
+      pack,
+      [{ record, stdout: { text: "ok", total: 1, shown: 1, cut: false }, stderr: { text: "", total: 0, shown: 0, cut: false } }],
+      check,
+    );
     expect(parsePack(text)).toEqual(pack);
     expect(packComplete(pack)).toBe(false);
   });

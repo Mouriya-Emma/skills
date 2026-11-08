@@ -8,12 +8,15 @@ import { checkBody, checkIdentity, checkNoCode, type NoCodeReport } from "../pr.
 import { UsageError } from "../proc.ts";
 import { type Ref, type Repo, refKey } from "../ref.ts";
 import { type CheckResult, type ChildMerge, checkEvidence, describe, type Mode } from "./check.ts";
-import { loadRecords, tail } from "./record.ts";
+import { type EvidenceRecord, loadRecords, tail } from "./record.ts";
 import { type RecordDetail, renderPack, toPack } from "./render.ts";
 import { scanSecrets } from "./secrets.ts";
 
 export const STATUS_CONTEXT = "evidence/complete";
 const TAIL_LINES = 40;
+/** Characters of log tails one pack may carry: GitHub rejects comments over 65536 characters, and the table, commands
+ * and images take the rest. Each stream of each record gets an equal share. */
+const PACK_LOG_CHARS = 40000;
 
 type Runnable = Extract<IssueBody, { kind: "standard" | "integration" }>;
 
@@ -84,21 +87,21 @@ export async function evCheck(ref: Ref): Promise<number> {
 }
 
 async function details(t: Target, check: CheckResult): Promise<RecordDetail[]> {
-  const byId = new Map<string, RecordDetail>();
   const dirs = new Map((await loadRecords(t.issue.ref)).map((x) => [x.record.id, x.dir]));
+  const linked = new Map<string, { record: EvidenceRecord; dir: string }>();
   for (const r of check.rows) {
     for (const s of r.steps) {
-      if (s.status.kind !== "linked" || byId.has(s.status.record.id)) continue;
+      if (s.status.kind !== "linked") continue;
       const dir = dirs.get(s.status.record.id);
-      if (dir === undefined) continue;
-      byId.set(s.status.record.id, {
-        record: s.status.record,
-        stdout: await tail(dir, "stdout", TAIL_LINES),
-        stderr: await tail(dir, "stderr", TAIL_LINES),
-      });
+      if (dir !== undefined) linked.set(s.status.record.id, { record: s.status.record, dir });
     }
   }
-  return [...byId.values()].sort((a, b) => (a.record.startedAt < b.record.startedAt ? -1 : 1));
+  const share = Math.floor(PACK_LOG_CHARS / Math.max(1, 2 * linked.size));
+  const out: RecordDetail[] = [];
+  for (const { record, dir } of linked.values()) {
+    out.push({ record, stdout: await tail(dir, "stdout", TAIL_LINES, share), stderr: await tail(dir, "stderr", TAIL_LINES, share) });
+  }
+  return out.sort((a, b) => (a.record.startedAt < b.record.startedAt ? -1 : 1));
 }
 
 function renderNoCode(issue: IssueData, pr: PrData, report: NoCodeReport, d: readonly Diagnostic[], generatedAt: string): string {
@@ -155,7 +158,7 @@ export async function evPublish(ref: Ref): Promise<number> {
   }
   const pack = toPack(check, generatedAt);
   const target = t.kind === "pr" ? t.pr.ref : t.issue.ref;
-  const url = await postComment(target, renderPack(pack, det, check, TAIL_LINES));
+  const url = await postComment(target, renderPack(pack, det, check));
   const complete = check.complete && problems.length === 0;
   const missing = check.rows.filter((r) => r.overall !== "linked").map((r) => `#${r.row.id}`);
   const statusTargets: { repo: Repo; sha: string }[] =

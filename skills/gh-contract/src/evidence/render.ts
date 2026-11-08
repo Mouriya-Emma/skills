@@ -106,9 +106,10 @@ function fence(text: string): string {
   return `${f}text\n${text}\n${f}`;
 }
 
-export type RecordDetail = { readonly record: EvidenceRecord; readonly stdout: { text: string; total: number }; readonly stderr: { text: string; total: number } };
+type Tail = { readonly text: string; readonly total: number; readonly shown: number; readonly cut: boolean };
+export type RecordDetail = { readonly record: EvidenceRecord; readonly stdout: Tail; readonly stderr: Tail };
 
-function renderDetail(d: RecordDetail, tailLines: number): string {
+function renderDetail(d: RecordDetail): string {
   const r = d.record;
   const out: string[] = [];
   // "#N" would be autolinked to issue N, so rows render as "行 N".
@@ -121,7 +122,8 @@ function renderDetail(d: RecordDetail, tailLines: number): string {
     out.push(`cwd \`${r.capture.cwd}\` · ${r.capture.shell} · ${r.startedAt} – ${r.endedAt} · ${clean} · 记录 \`${r.id}\``, "");
     for (const [name, t] of [["stdout", d.stdout], ["stderr", d.stderr]] as const) {
       if (t.total === 0) continue;
-      const note = t.total > tailLines ? `末尾 ${tailLines} 行，共 ${t.total} 行` : `共 ${t.total} 行`;
+      const part = t.cut ? "末尾 1 行的末段" : `末尾 ${t.shown} 行`;
+      const note = t.cut || t.shown < t.total ? `${part}，共 ${t.total} 行` : `共 ${t.total} 行`;
       out.push(`${name}（${note}）：`, "", fence(t.text), "");
     }
     out.push("</details>");
@@ -158,7 +160,7 @@ function renderImages(check: CheckResult): string[] {
   return out;
 }
 
-export function renderPack(pack: Pack, details: readonly RecordDetail[], check: CheckResult, tailLines: number): string {
+export function renderPack(pack: Pack, details: readonly RecordDetail[], check: CheckResult): string {
   const out: string[] = [PACK_TITLE, ""];
   out.push(`> 由 \`ghc\` 生成 · issue ${pack.issue} · 正文修订 ${pack.issueRev} · ${pack.linked}/${pack.total} 行齐全 · 生成于 ${pack.generatedAt}`);
   out.push(`> 检出 ${pack.heads.map((h) => `${repoKey(h.repo)}@${h.head}`).join(", ") || "无"}`, "");
@@ -168,7 +170,7 @@ export function renderPack(pack: Pack, details: readonly RecordDetail[], check: 
     out.push(`| ${r.row} | ${r.face} | ${covers} | ${r.role} | ${r.step} | ${r.status} | ${r.command === null ? "—" : cellCode(r.command)} | ${cellText(r.result)} |`);
   }
   out.push(...renderImages(check));
-  if (details.length > 0) out.push("", ...details.map((d) => renderDetail(d, tailLines)).join("\n\n").split("\n"));
+  if (details.length > 0) out.push("", ...details.map((d) => renderDetail(d)).join("\n\n").split("\n"));
   return `${out.join("\n")}\n`;
 }
 

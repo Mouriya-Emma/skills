@@ -147,10 +147,27 @@ export async function loadRecords(issue: Ref): Promise<{ record: EvidenceRecord;
   return out;
 }
 
-export async function tail(dir: string, stream: "stdout" | "stderr", lines: number): Promise<{ text: string; total: number }> {
+/** The stream's tail: at most `lines` lines and `maxChars` characters, whole lines from the end; when the last line
+ * alone is longer, its end. `shown` counts the lines in `text`; `cut` says the first of them lost its start. */
+export async function tail(
+  dir: string,
+  stream: "stdout" | "stderr",
+  lines: number,
+  maxChars: number,
+): Promise<{ text: string; total: number; shown: number; cut: boolean }> {
   const f = Bun.file(join(dir, `${stream}.txt`));
-  if (!(await f.exists())) return { text: "", total: 0 };
+  if (!(await f.exists())) return { text: "", total: 0, shown: 0, cut: false };
   const all = (await f.text()).replace(/\n$/, "").split("\n");
   const total = all.length === 1 && all[0] === "" ? 0 : all.length;
-  return { text: all.slice(-lines).join("\n"), total };
+  const kept: string[] = [];
+  let size = 0;
+  for (const line of all.slice(-lines).reverse()) {
+    if (size + line.length + 1 > maxChars) {
+      if (kept.length === 0) return { text: `…${line.slice(-(maxChars - 1))}`, total, shown: 1, cut: true };
+      break;
+    }
+    kept.unshift(line);
+    size += line.length + 1;
+  }
+  return { text: kept.join("\n"), total, shown: kept.length, cut: false };
 }
