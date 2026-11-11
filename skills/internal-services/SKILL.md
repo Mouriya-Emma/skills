@@ -65,9 +65,9 @@ Without a dedicated skill: registry, Homepage, moat-browser, Step-CA, full DNS s
 
 Verify current state from these before a recommendation the user may act on; discover additions rather than treating the list as complete.
 
-homelab-tf (`/Users/mouriya/Ext/code/iac/homelab-tf`): `AGENTS.md`, `Makefile` (workspace list), workspace `main.tf` with `vms/*.yaml` and `network/cts/*.yaml`, `network/identities.yaml`, `_shared/ansible/inventory.yml`, `.gitmodules`.
+homelab-tf (`/Users/mouriya/Ext/code/devops/homelab-tf`): `AGENTS.md`, `Makefile` (workspace list), workspace `main.tf` with `vms/*.yaml` and `network/cts/*.yaml`, `network/identities.yaml`, `_shared/ansible/inventory.yml`, `.gitmodules`.
 
-pve-vctcn (`/Users/mouriya/Ext/code/iac/pve-vctcn`): `AGENTS.md`, `apps/*/{main.tf,README.md,variables.tf}`, the compose templates under `apps/*/templates/` (IaC-kept apps only).
+pve-vctcn (`/Users/mouriya/Ext/code/devops/pve-vctcn`): `AGENTS.md`, `apps/*/{main.tf,README.md,variables.tf}`, the compose templates under `apps/*/templates/` (IaC-kept apps only).
 
 Workload repos (`homelab-apps`, `vctcn-edge`, `homelab-trading`, `runner-canary`, `moat-browser-deploy`, …): `komodo/syncs/*.toml` and `stacks/*/`. A live Stack's `repo` field names its declaring repo, including ones missing from this list.
 

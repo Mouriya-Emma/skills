@@ -17,7 +17,7 @@ Before asserting current state, verify from live/current sources:
    ssh root@vctcn-runner.mouriya.lan '/usr/local/bin/garm-cli repository ls --format json'
    ```
    Never print `garm-cli profile list --format json` (it contains the token).
-2. **Runner/registry docs** — `/Users/mouriya/Ext/code/iac/pve-vctcn/apps/runner/README.md`, `/Users/mouriya/Ext/code/iac/pve-vctcn/apps/registry/README.md` (VM, Keycloak, signing keypair, consumer secrets) and `/Users/mouriya/Ext/code/vctcn-edge/stacks/registry/README.md` (registry + docker_auth app).
+2. **Runner/registry docs** — `/Users/mouriya/Ext/code/devops/pve-vctcn/apps/runner/README.md`, `/Users/mouriya/Ext/code/devops/pve-vctcn/apps/registry/README.md` (VM, Keycloak, signing keypair, consumer secrets) and `/Users/mouriya/Ext/code/vctcn-edge/stacks/registry/README.md` (registry + docker_auth app).
 3. **Consumer repo latest default branch** — fetch/pull latest default branch or inspect `origin/<default>` if the working tree is dirty.
 4. **Owning IaC repo** — for placement and install/deploy truth: `homelab-tf` or `pve-vctcn` current docs/state/submodules.
 
@@ -74,7 +74,7 @@ Implementation expectations:
   the runtime Dockerfile copies it and installs only runtime dependencies.
 - Runner: `runs-on: [self-hosted, linux, vctcn]` plus `netbird` / `vctcn-runner` / `x64` only when the live pool labels require or clarify capability. These base labels select the repo's pool pair, not resident vs edge: a job may run on either, so it must not depend on `172.16.1.0/24`, a VM 181 source IP, or the VM 181 image cache. A job that needs more memory than VM 181's 4 GiB (shared by all resident runners) adds `cachyos`, which only the repo's edge pool carries once the operator adds it there (today only paseo's); that job runs only on the CachyOS edge host and waits while the edge pool is disabled (pve-vctcn#300).
 - Pool: Docker build/push jobs need `flavor=docker` and VM181 helper-generated `extra_specs` (`build-extra-specs.sh --docker`), identical on the repo's resident and edge pools. A default-flavor pool (e.g. homelab-moat) has no Docker and no registry pin.
-- Concurrency: a repo has capacity for at most one resident and one edge job at a time, and the edge half is conditional: the availability gate must have the edge pool enabled, and the edge Incus project allows only **two instances across all repositories**. Every job that writes a shared object (Komodo Stack or Variable, floating image tag, release asset, branch) uses a job-level `concurrency` group named after that object, identical across all workflows that write it, with `cancel-in-progress: false`. Use `queue: max` when each run carries its own intent (a release tag, a version to deploy) that must not be dropped; a workflow that only syncs the current default branch may keep the default single pending run, since the newer run supersedes the older one (mouriya-s-lab/garm-edge-incus#15). actionlint 1.7.12 does not know `queue`; suppress only that diagnostic.
+- Concurrency: a repo has capacity for at most one resident and one edge job at a time, and the edge half is conditional: the availability gate must have the edge pool enabled, and the edge Incus project allows only **two instances across all repositories**. Every job that writes a shared object (Komodo Stack or Variable, floating image tag, release asset, branch) uses a job-level `concurrency` group named after that object, identical across all workflows that write it, with `cancel-in-progress: false`. Use `queue: max` when each run carries its own intent (a release tag, a version to deploy) that must not be dropped; a workflow that only syncs the current default branch may keep the default single pending run, since the newer run supersedes the older one (mouriya-devops/garm-edge-incus#15). actionlint 1.7.12 does not know `queue`; suppress only that diagnostic.
 - Registry push: follow [Private registry](#private-registry-registry237575xyz) below. Naming the token action is not enough; the repo must be onboarded to the registry secret first.
 - Push immutable tags; add convenience tags only when appropriate (`short-sha`, `latest` on main, release tag, PR tag).
 - Deploying to Komodo: release CI holds no Komodo credentials and does not edit Komodo resources, host storage, mesh, placement or the target Core's registry account. When the source repo is separate from the workload repo, the release workflow creates a GitHub Deployment after the last image push (immutable tag first, then the channel tag), using its own `GITHUB_TOKEN` with `permissions: deployments: write`; a deployment-only hook on the source repo runs the workload repo's `deploy-<stack>` Procedure. When the source repo is the workload repo, the release workflow commits the exact version into that Stack's `environment` in the Sync TOML and pushes. The `km` skill's onboarding section owns the Komodo side of both shapes.
@@ -82,10 +82,10 @@ Implementation expectations:
 
 Canonical sample docs:
 
-- `/Users/mouriya/Ext/code/runner-canary/README.md`
-- `/Users/mouriya/Ext/code/runner-canary/docs/cicd-template.md`
-- `/Users/mouriya/Ext/code/runner-canary/komodo/syncs/stacks.toml`
-- `/Users/mouriya/Ext/code/runner-canary/stacks/runner-canary/compose.yaml`
+- `/Users/mouriya/Ext/code/devops/runner-canary/README.md`
+- `/Users/mouriya/Ext/code/devops/runner-canary/docs/cicd-template.md`
+- `/Users/mouriya/Ext/code/devops/runner-canary/komodo/syncs/stacks.toml`
+- `/Users/mouriya/Ext/code/devops/runner-canary/stacks/runner-canary/compose.yaml`
 
 ### B. Release artifact consumed through the owning deployment workflow
 
@@ -171,7 +171,7 @@ Workflow step:
 
 ```yaml
 - id: registry-token
-  uses: moat-lab/keycloak-token-action@v1
+  uses: mouriya-devops/keycloak-token-action@v1
   with:
     keycloak-url: https://keycloak.237575.xyz
     realm: registry
@@ -182,9 +182,9 @@ Workflow step:
     TOKEN: ${{ steps.registry-token.outputs.access-token }}
 ```
 
-Place the token step **after** the build and immediately before the first push, so login-to-last-push stays well under the token lifetime. A job with several publish phases separated by long work mints and logs in again before each phase. The old spelling `Mouriya-Emma/keycloak-token-action` redirects to the same action; new workflows use `moat-lab/…`.
+Place the token step **after** the build and immediately before the first push, so login-to-last-push stays well under the token lifetime. A job with several publish phases separated by long work mints and logs in again before each phase. The action lives at `mouriya-devops/keycloak-token-action`; reference it by that path, since GitHub documents no redirect guarantee for `uses:` after a repository is renamed or transferred.
 
-To check the runner/registry seam without releasing anything, dispatch runner-canary's pull-only canary: `gh workflow run registry-auth.yml -R mouriya-s-lab/runner-canary`. Its `release.yml` is the full publish example.
+To check the runner/registry seam without releasing anything, dispatch runner-canary's pull-only canary: `gh workflow run registry-auth.yml -R mouriya-devops/runner-canary`. Its `release.yml` is the full publish example.
 
 ### Network path from GARM runners
 

@@ -11,28 +11,28 @@ IaC 只管机器和平台：VM/CT 生命周期、磁盘、网卡、主机基线�
 
 ## repo
 
-本地 checkout 都在 `/Users/mouriya/Ext/code/iac/<repo>/`，每个都是独立 git repo；`iac/` 本身只是目录，不是 git repo，git 操作在各 repo 目录里做。
+IaC repo 都在 GitHub org `mouriya-devops`，本地 checkout 都在 `/Users/mouriya/Ext/code/devops/<repo>/`，每个都是独立 git repo；`devops/` 本身只是目录，不是 git repo，git 操作在各 repo 目录里做。
 
 ### homelab-tf：家庭 LAN
 
-- 本地 `/Users/mouriya/Ext/code/iac/homelab-tf`；GitHub `mouriya-s-lab/homelab-tf`。
+- 本地 `/Users/mouriya/Ext/code/devops/homelab-tf`；GitHub `mouriya-devops/homelab-tf`。
 - 单台 Proxmox host，家庭 LAN `192.168.1.67`，ISP NAT 之后。OpenTofu workspace 管 CT/VM；`<app>/` 下是 Ansible role submodule（各自独立 git repo，parent 跟踪指针）。
 - 入口 `AGENTS.md`，之后 `.claude/rules/` 与 `.claude/skills/`（IaC 变更任务入口是 repo skill `iac-deploy`）。
 
 ### pve-vctcn：OVH 云主机与公网边缘
 
-- 本地 `/Users/mouriya/Ext/code/iac/pve-vctcn`；GitHub `mouriya-s-lab/pve-vctcn`。
+- 本地 `/Users/mouriya/Ext/code/devops/pve-vctcn`；GitHub `mouriya-devops/pve-vctcn`。
 - 单台 OVH 裸金属 Proxmox host `192.99.9.212`，单公网 IP NAT；guest 内网 `172.16.1.0/24` 于 `vmbr1`；SSH key-only。OpenTofu workspace 在 `apps/` 下管 VM，与手工 guest（如 NPM CT 171）共存。没有 Ansible。
 - 入口 `AGENTS.md`（指向 `CLAUDE.md`），之后 `.claude/rules/`、`.claude/skills/`（IaC 变更任务入口同样是 `iac-deploy`）；规则与 homelab-tf 各自独立。
 
 ### nekoringo-iac
 
-- 本地 `/Users/mouriya/Ext/code/iac/nekoringo-iac`；GitHub `mouriya-s-lab/nekoringo-iac`。
+- 本地 `/Users/mouriya/Ext/code/devops/nekoringo-iac`；GitHub `mouriya-devops/nekoringo-iac`。
 - Nekoringo 专用主机与它的 Komodo Core（`apps/komodo`），不属 homelab 或 vctcn。
 
 ### oracle-iac：Oracle Cloud tenancy
 
-- 本地 `/Users/mouriya/Ext/code/iac/oracle-iac`；GitHub `mouriya-s-lab/oracle-iac`。
+- 本地 `/Users/mouriya/Ext/code/devops/oracle-iac`；GitHub `mouriya-devops/oracle-iac`。
 - Oracle Cloud tenancy（`ap-tokyo-1`）的 OpenTofu：`bootstrap/` 管 state bucket `oracle-iac-tfstate` 与预算告警，`host/` 管 VCN 与 A1 实例 `oracle-a1`。入口 `README.md`。
 
 ## 跨 repo 不变量
