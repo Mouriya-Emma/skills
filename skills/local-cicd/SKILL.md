@@ -17,7 +17,7 @@ Before asserting current state, verify from live/current sources:
    ssh root@vctcn-runner.mouriya.lan '/usr/local/bin/garm-cli repository ls --format json'
    ```
    Never print `garm-cli profile list --format json` (it contains the token).
-2. **Runner/registry docs** — `/Users/mouriya/Ext/code/pve-vctcn/apps/runner/README.md`, `/Users/mouriya/Ext/code/pve-vctcn/apps/registry/README.md` (VM, Keycloak, signing keypair, consumer secrets) and `/Users/mouriya/Ext/code/vctcn-edge/stacks/registry/README.md` (registry + docker_auth app).
+2. **Runner/registry docs** — `/Users/mouriya/Ext/code/iac/pve-vctcn/apps/runner/README.md`, `/Users/mouriya/Ext/code/iac/pve-vctcn/apps/registry/README.md` (VM, Keycloak, signing keypair, consumer secrets) and `/Users/mouriya/Ext/code/vctcn-edge/stacks/registry/README.md` (registry + docker_auth app).
 3. **Consumer repo latest default branch** — fetch/pull latest default branch or inspect `origin/<default>` if the working tree is dirty.
 4. **Owning IaC repo** — for placement and install/deploy truth: `homelab-tf` or `pve-vctcn` current docs/state/submodules.
 

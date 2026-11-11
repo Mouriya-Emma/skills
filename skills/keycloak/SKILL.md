@@ -10,9 +10,9 @@ allowed-tools: Bash, Read, Write, Edit, Grep, Glob, WebFetch, mcp__ssh-manager__
 
 Use these current checkout sources before acting on placement or configuration:
 
-- `/Users/mouriya/Ext/code/pve-vctcn/apps/vctcn-app1/main.tf`
-- `/Users/mouriya/Ext/code/pve-vctcn/apps/vctcn-app1/templates/compose.yaml.tftpl`
-- `/Users/mouriya/Ext/code/pve-vctcn/apps/registry/main.tf`
+- `/Users/mouriya/Ext/code/iac/pve-vctcn/apps/vctcn-app1/main.tf`
+- `/Users/mouriya/Ext/code/iac/pve-vctcn/apps/vctcn-app1/templates/compose.yaml.tftpl`
+- `/Users/mouriya/Ext/code/iac/pve-vctcn/apps/registry/main.tf`
 
 The placement guide is VM 180 `vctcn-app1`, public/admin URL `https://keycloak.237575.xyz`, owned by `pve-vctcn`. Verify it against those sources and live state for an operational task; this skill is not a live inventory.
 
@@ -41,7 +41,7 @@ Admin REST examples below are inspection, not an alternative persistent configur
 
 ```bash
 export KC_ADMIN_USERNAME=riri-agent
-export KC_ADMIN_PASSWORD="$(sops -d --extract '["keycloak_agent_password"]' /Users/mouriya/Ext/code/pve-vctcn/_shared/secrets/secrets.yml)"
+export KC_ADMIN_PASSWORD="$(sops -d --extract '["keycloak_agent_password"]' /Users/mouriya/Ext/code/iac/pve-vctcn/_shared/secrets/secrets.yml)"
 ```
 
 If that path is unavailable, investigate the integration gap rather than asking the user to paste secrets or run the command for you.
