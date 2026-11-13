@@ -46,7 +46,7 @@ PR 用哪个模板由它关闭的 issue 决定，不混用：关闭「无代码�
 4. 先提交再采集：工作区有未提交的 tracked 改动时 `ghc` 拒绝采集，HEAD 变了就在新 HEAD 上重跑。不手写输出、不挪用别次输出，正文不贴日志或截图。
 5. `ghc ev check <issue>` 退出码为 0 才开 PR；它列出的缺失、过期、无效行就是待办。
 
-运行强度按 `~/.claude/rules/runtime-verification-required.rule.md`：Web 用 `skill://agent-browser` 完整执行真实用户路径，经 `ghc` 采集截图；首页探活、单接口 curl 或 spec 名称不能替代它。mock、stub、fake、in-memory 或实现者本次自写的测试不能充当覆盖行的观察；套件计数、CI 绿勾、typecheck/lint/build 只属于卫生行。历史反例见 [acceptance-cases.md](../writing-issue/references/acceptance-cases.md)。
+运行强度按 `~/.claude/rules/runtime-verification-required.rule.md`：Web 在浏览器中完整执行真实用户路径，经 `ghc` 采集截图；首页探活、单接口 curl 或 spec 名称不能替代它。mock、stub、fake、in-memory 或实现者本次自写的测试不能充当覆盖行的观察；套件计数、CI 绿勾、typecheck/lint/build 只属于卫生行。历史反例见 [acceptance-cases.md](../writing-issue/references/acceptance-cases.md)。
 
 真实验证受阻时：属于本 PR 的问题先修；外部 blocker 用 `skill://writing-issue` 发布并写解除条件，确需操作员独有判断才提问。缺凭据先按 `credentials-from-owning-source` 规则查拥有方的 secret store 与本机既有凭据来源，不向用户索要 token。没有证据不宣称 ready；确实无法解除的阻塞在 PR thread 写明「验收行 #N 阻塞——<原因> + <blocker issue 链接 / 已提出的问题>」，交 reviewer 裁决，证据包里该行如实显示为缺失。
 

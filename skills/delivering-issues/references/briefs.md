@@ -43,7 +43,7 @@
 # 交付
 - 实现整个 issue，核心代码由你亲自写；其余是否委派、怎样拆由你按策略原文决定。
 - 一个 PR，首行 `Closes <owner>/<repo>#<N>`，只关闭这一个 issue。
-- PR 正文按 writing-pr 选模板。标准 PR 的证据只经 `ghc ev run` / `ghc ev attach` 采集（Web 按 `skill://agent-browser` 走真实用户路径，截图经 `--artifacts` 采集）；`ghc ev check <issue>` 退出码 0 才开 PR，开 PR 后 `ghc lint <PR>` 与 `ghc ev publish <PR>` 退出码都是 0。
+- PR 正文按 writing-pr 选模板。标准 PR 的证据只经 `ghc ev run` / `ghc ev attach` 采集（Web 在浏览器中走真实用户路径，截图经 `--artifacts` 采集）；`ghc ev check <issue>` 退出码 0 才开 PR，开 PR 后 `ghc lint <PR>` 与 `ghc ev publish <PR>` 退出码都是 0。
 - 跑 issue 指定的命令与 repo 校验命令。
 
 # 契约问题
@@ -124,7 +124,7 @@ issue 全文（尤其预期结果与验收表）与决策 comment；<parent 链�
 
 # 做法
 - 在自己的工作目录里干净地检出 <SHA>（detached），确认 commit 与工作区干净后再运行，不相信继承来的 worktree。HEAD 变化立即停下报告。
-- 经该 issue 的真实用户入口逐条观察预期结果的正负路径：<纯库：在仓库外自写固定输入的一次性 driver 调用公开 API / CLI：真实命令 / Web：按 skill://agent-browser 走真实用户路径并截图 / 无代码变更：核对文档间语义与引用>，涉及存储、文件、进程时用真实的。不复用作者的 driver 或测试。最后跑一次 repo 校验命令。
+- 经该 issue 的真实用户入口逐条观察预期结果的正负路径：<纯库：在仓库外自写固定输入的一次性 driver 调用公开 API / CLI：真实命令 / Web：在浏览器中走真实用户路径并截图 / 无代码变更：核对文档间语义与引用>，涉及存储、文件、进程时用真实的。不复用作者的 driver 或测试。最后跑一次 repo 校验命令。
 - 作者的测试通过不算验收。发现缺陷时给出最小复现；NOT ACCEPTED 加复现就是完整交付，不要修代码。
 - 不改 repo，不写 GitHub；临时文件与数据用完清理。
 
