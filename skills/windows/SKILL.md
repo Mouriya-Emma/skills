@@ -1,6 +1,6 @@
 ---
 name: windows
-description: Use for the unattended Windows 11 agent VMs agent-vm-win11-01/-02: reaching them (NetBird, LAN, ssh, windows-mcp), running remote commands, and splitting identity after a clone; not for macOS desktop control (cua-driver).
+description: Use for the unattended Windows 11 agent VMs agent-vm-win11-01/-02 — reaching them (NetBird, LAN, ssh, windows-mcp), running remote commands, and splitting identity after a clone; not for macOS desktop control (cua-driver).
 ---
 
 # windows：Windows 11 agent VM
