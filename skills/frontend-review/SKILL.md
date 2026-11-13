@@ -11,7 +11,7 @@ Review the changed surfaces, not the whole app unless requested. Prioritize comp
 ## Execute the flow
 
 1. Identify the affected user journey, prerequisites, expected final state and relevant rules below.
-2. Follow `~/.claude/rules/runtime-verification-required.rule.md` for the complete real-user path: authenticate, enter the feature, operate, submit, observe the result and persisted/downstream effects. A homepage check or isolated API call is not a frontend review.
+2. Read `skill://ego-browser` before browser use and drive the browser through it. Follow `~/.claude/rules/runtime-verification-required.rule.md` for the complete real-user path: authenticate, enter the feature, operate, submit, observe the result and persisted/downstream effects. A homepage check or isolated API call is not a frontend review.
 3. At each meaningful transition, capture the page state, enabled/disabled controls and user feedback. After mutation, compare the UI with the actual API response and persisted DB/downstream state using the environment's authorized read path. For a confirmed local API endpoint, an auxiliary observation can be:
 
    ```bash

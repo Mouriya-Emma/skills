@@ -132,7 +132,7 @@ owner 报告 PR URL、HEAD 与 closing issue 后，编排者跑 `ghc lint <PR>`�
 同一批里用 `task` 派两名全新的隔离 `task:free1`（模板见 briefs.md）：
 
 - **reviewer**：在钉死的 HEAD 上执行 Gate 1–5，首个失败即停；以 issue 契约为尺，不扩大范围；结论 comment 的第一行是 `ghc gate header <PR> --kind review` 的输出，其后写首个失败 gate、`file:line`、复现与下一责任人，发到 PR thread。针对编排者所提交 commit 的发现，下一责任人写编排者。
-- **验收者**：在干净的 detached checkout 上确认 HEAD 后，经该 issue 的真实用户入口独立观察每条预期结果的正负路径：纯库用固定输入的一次性 driver 调用公开 API；CLI 走真实命令；Web 在浏览器中走真实用户路径；无代码变更 PR 核对文档间语义与引用。不复用作者的 driver 与测试。PASS 或 NOT ACCEPTED（附复现）都算完成交付，报告给编排者，不写 GitHub。
+- **验收者**：在干净的 detached checkout 上确认 HEAD 后，经该 issue 的真实用户入口独立观察每条预期结果的正负路径：纯库用固定输入的一次性 driver 调用公开 API；CLI 走真实命令；Web 按 `skill://ego-browser` 走真实用户路径；无代码变更 PR 核对文档间语义与引用。不复用作者的 driver 与测试。PASS 或 NOT ACCEPTED（附复现）都算完成交付，报告给编排者，不写 GitHub。
 
 两者都钉死同一个 HEAD，HEAD 一变立即停下报告。gate 运行期间 owner 不推送；修复先在本地准备，等本轮结论出来再推。
 
