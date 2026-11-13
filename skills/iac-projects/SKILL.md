@@ -33,13 +33,13 @@ IaC repo 都在 GitHub org `mouriya-devops`，本地 checkout 都在 `/Users/mou
 ### oracle-iac：Oracle Cloud tenancy
 
 - 本地 `/Users/mouriya/Ext/code/devops/oracle-iac`；GitHub `mouriya-devops/oracle-iac`。
-- Oracle Cloud tenancy（`ap-tokyo-1`）的 OpenTofu：`bootstrap/` 管 state bucket `oracle-iac-tfstate` 与预算告警，`host/` 管 VCN 与 A1 实例 `oracle-a1`。入口 `README.md`。
+- Oracle Cloud tenancy（`ap-tokyo-1`）的 OpenTofu：`bootstrap/` 管 state bucket `oracle-iac-tfstate` 与预算告警，`host/` 管 VCN、A1 实例 `oracle-a1`，以及它作为 GARM arm64 runner 主机的基线（NetBird、Docker）与 garm-edge-incus Incus 栈。入口 `README.md`。
 
 ## 跨 repo 不变量
 
 - 两个 repo 的 OpenTofu state 是不同对象：共用 Cloudflare R2 bucket `homelab-tf`，homelab-tf 用 key `<workspace>/terraform.tfstate`，pve-vctcn 用 `pve-vctcn/<workspace>/...`。PVE provider 凭据、各自的 SOPS 文件、Ansible inventory（仅 homelab-tf 有）互不共享。
 - homelab PVE 已入 NetBird mesh（`pve.mouriya.lan`），vctcn PVE（`192.99.9.212`）未入；不能从 guest 可达推断 PVE host 的状态。
-- GARM runner 经 NetBird mesh 伸进 homelab 做 CI/CD：控制器在 pve-vctcn VM 181，执行端是 VM 181 上的常驻 LXD，或常驻满时操作员笔记本上的边缘 Incus，各自经所在主机的 NetBird peer 出网。runner 在 homelab 侧所见的变更按对象归属：homelab DNS 记录归 homelab-tf；NetBird policy、ACL 与 nameserver group 是 NetBird SaaS dashboard/API 的 live 状态，两个 repo 都没有 IaC provider，改前先读 live policy，改动记录在对应 homelab-tf issue。runner workspace 在 pve-vctcn 不改变这些归属。
+- GARM runner 经 NetBird mesh 伸进 homelab 做 CI/CD：控制器在 pve-vctcn VM 181，执行端是 VM 181 上的常驻 LXD，或常驻满时操作员笔记本上的边缘 Incus，arm64 job 则在 oracle-iac 的 `oracle-a1` 上的 Incus，各自经所在主机的 NetBird peer 出网。runner 在 homelab 侧所见的变更按对象归属：homelab DNS 记录归 homelab-tf；NetBird policy、ACL 与 nameserver group 是 NetBird SaaS dashboard/API 的 live 状态，两个 repo 都没有 IaC provider，改前先读 live policy，改动记录在对应 homelab-tf issue。runner workspace 在 pve-vctcn 不改变这些归属。
 - 根信任服务 Step-CA（CT 313）留在 homelab；vctcn 服务需要时经 NetBird 使用。OpenBao（CT 314）已退役停机。没有 homelab-tf issue 与设计，不把根信任外移。
 
 ## 从 app 或 workload 上下文提基础设施需求

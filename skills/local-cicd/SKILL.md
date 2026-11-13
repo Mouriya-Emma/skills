@@ -1,6 +1,6 @@
 ---
 name: local-cicd
-description: Self-hosted CI on GARM (resident LXD on VM 181 plus edge Incus overflow) and the private registry registry.237575.xyz. Use to onboard a repo to GARM pools, write mesh-aware workflows, build and push images, publish or consume release artifacts, handle concurrency on shared delivery state, and pick evidence per delivery shape. Deploying to Komodo itself is in the km skill.
+description: Self-hosted CI on GARM (resident LXD on VM 181, edge Incus overflow, arm64 Incus on Oracle A1) and the private registry registry.237575.xyz. Use to onboard a repo to GARM pools, write mesh-aware workflows, build and push images, publish or consume release artifacts, handle concurrency on shared delivery state, and pick evidence per delivery shape. Deploying to Komodo itself is in the km skill.
 ---
 
 # local-cicd: self-hosted CI/CD 体系
@@ -28,7 +28,7 @@ Static lists in this skill are examples/patterns. Treat live GARM + current repo
 | Stage | Authority |
 |---|---|
 | Source repo | App/plugin/sync code, workflow YAML, artifact naming, app-level deploy trigger. |
-| Runner seam | One GARM controller on VM 181 `vctcn-runner`, pool state in GARM sqlite (not TF). Each onboarded repo has a resident `lxd_local` pool (LXD on VM 181, mesh via VM 181's NetBird peer) and an edge `incus_edge` pool (Incus on the operator's CachyOS laptop, mesh via that laptop's peer) with the same base labels; a common-label job prefers resident and overflows to edge. An edge pool may additionally carry `cachyos` (pve-vctcn#300), which makes jobs requiring it edge-only. See `pve-vctcn/apps/runner/README.md`. |
+| Runner seam | One GARM controller on VM 181 `vctcn-runner`, pool state in GARM sqlite (not TF). Each onboarded repo has a resident `lxd_local` pool (LXD on VM 181, mesh via VM 181's NetBird peer) and an edge `incus_edge` pool (Incus on the operator's CachyOS laptop, mesh via that laptop's peer) with the same base labels; a common-label job prefers resident and overflows to edge. An edge pool may additionally carry `cachyos` (pve-vctcn#300), which makes jobs requiring it edge-only. A repo that needs arm64 also gets an `incus_oracle` pool (Incus on Oracle A1, host owned by `oracle-iac`, mesh via that host's peer, always enabled, no gate) labelled only `self-hosted,linux,arm64`. See `pve-vctcn/apps/runner/README.md`. |
 | Private registry | `registry.237575.xyz` on VM 182 `vctcn-registry`. The registry + docker_auth Stack (compose, docker_auth config, `ext_auth.sh`) is declared in `vctcn-edge`; VM 182, Keycloak realm `registry` with client and `sa-registry`, the token-signing keypair and the consumer repos' Actions secret are `pve-vctcn/apps/registry`. |
 | Komodo deploy | Workload repo declarations, webhook and secret workflow, image release triggers, app onboarding: `km` skill. Komodo installation, registry pull account and Core listener ingress: the IaC repo that installs Komodo (`iac-projects`). |
 | vctcn hosts and edge | `pve-vctcn`: VMs 180–182, Keycloak, GARM, host NAT/DNAT and Cloudflare DNS. `vctcn-edge`: the edge apps on those hosts and CT 171, including NPM, whose proxy hosts are declared in its compose bootstrap. |
@@ -73,6 +73,7 @@ Implementation expectations:
 - Keep compilation and packaging separate: the compiler produces the artifact;
   the runtime Dockerfile copies it and installs only runtime dependencies.
 - Runner: `runs-on: [self-hosted, linux, vctcn]` plus `netbird` / `vctcn-runner` / `x64` only when the live pool labels require or clarify capability. These base labels select the repo's pool pair, not resident vs edge: a job may run on either, so it must not depend on `172.16.1.0/24`, a VM 181 source IP, or the VM 181 image cache. A job that needs more memory than VM 181's 4 GiB (shared by all resident runners) adds `cachyos`, which only the repo's edge pool carries once the operator adds it there (today only paseo's); that job runs only on the CachyOS edge host and waits while the edge pool is disabled (pve-vctcn#300).
+- arm64 jobs: `runs-on: [self-hosted, linux, arm64]`, only in repos that have an `incus_oracle` pool. That pool never carries `vctcn`, so every x64 job in such a repo must keep `vctcn` in `runs-on`; otherwise it can match the arm64 pool or be handed to an arm64 runner.
 - Pool: Docker build/push jobs need `flavor=docker` and VM181 helper-generated `extra_specs` (`build-extra-specs.sh --docker`), identical on the repo's resident and edge pools. A default-flavor pool (e.g. homelab-moat) has no Docker and no registry pin.
 - Concurrency: a repo has capacity for at most one resident and one edge job at a time, and the edge half is conditional: the availability gate must have the edge pool enabled, and the edge Incus project allows only **two instances across all repositories**. Every job that writes a shared object (Komodo Stack or Variable, floating image tag, release asset, branch) uses a job-level `concurrency` group named after that object, identical across all workflows that write it, with `cancel-in-progress: false`. Use `queue: max` when each run carries its own intent (a release tag, a version to deploy) that must not be dropped; a workflow that only syncs the current default branch may keep the default single pending run, since the newer run supersedes the older one (mouriya-devops/garm-edge-incus#15). actionlint 1.7.12 does not know `queue`; suppress only that diagnostic.
 - Registry push: follow [Private registry](#private-registry-registry237575xyz) below. Naming the token action is not enough; the repo must be onboarded to the registry secret first.
@@ -137,14 +138,15 @@ Onboarding commands: see `pve-vctcn/apps/runner/README.md` ("GARM 仓 onboarding
 2. A resident `lxd_local` pool (`priority=100`, enabled) with labels matching the workflow `runs-on`.
 3. An edge `incus_edge` pool (`priority=0`, image `images:ubuntu/24.04/cloud`) with the same base labels, flavor, OS, bootstrap timeout and `extra_specs` as the resident pool; the only intended label difference is an operator-added `cachyos` capability. It is created disabled; only the availability gate writes its `enabled` — never pass `--enabled` to an edge pool.
 4. Docker build/push or job-container workflows require the Docker-capable pool shape (`flavor=docker`, `runner-bootstrap-timeout=60`, helper `--docker`).
+5. Optional arm64 pool: `incus_oracle`, `--os-arch arm64`, tags `self-hosted,linux,arm64`, created `--enabled`, `extra_specs` copied from the resident pool (command in the runner README, "arm64 Incus provider（Oracle A1）").
 
 Existing pools are changed live with `garm-cli pool update` on VM 181, applying the same change to both pools of a repo; OpenTofu does not manage repository registrations, pool labels, or `extra_specs`.
 
 Runner environment differences a workflow must tolerate:
 
-- Mesh access comes from the runner host's NetBird peer: VM 181 (LXD bridge NAT) for resident runners, the CachyOS edge host for edge runners. Edge runners cannot reach vctcn `172.16.1.0/24`.
-- In Docker-capable pools, `registry-mesh-hosts.sh` in `extra_specs` pins `registry.237575.xyz` to VM 182's mesh IP on both runner kinds; non-Docker pools get no pin. See [Private registry](#private-registry-registry237575xyz) for what that path implies.
-- Only resident runners have the `/mnt/docker-images` cache for `catthehacker/ubuntu:act-24.04`; edge runners pull it.
+- Mesh access comes from the runner host's NetBird peer: VM 181 (LXD bridge NAT) for resident runners, the CachyOS edge host for edge runners, `oracle-a1` for arm64 runners. Edge and arm64 runners cannot reach vctcn `172.16.1.0/24`.
+- In Docker-capable pools, `registry-mesh-hosts.sh` in `extra_specs` pins `registry.237575.xyz` to VM 182's mesh IP on every runner kind; non-Docker pools get no pin. See [Private registry](#private-registry-registry237575xyz) for what that path implies.
+- Only resident runners have the `/mnt/docker-images` cache for `catthehacker/ubuntu:act-24.04`; edge and arm64 runners pull it (the image has an arm64 variant).
 - Edge runner files have no Linux file capabilities (`ping` works through `ping_group_range`); job secrets are decrypted on the edge host; the edge host going offline fails the running job.
 - `sops` and `yq` are installed by `binary-tools-install.sh` only when the pool was built with them requested (`--extra-packages sops,yq,…`; today homelab-apps and homelab-trading). The installer downloads with `curl`, so request `curl` too. Do not assume these tools on other pools.
 - Do not inject old per-runner `netbird-install.sh`.
