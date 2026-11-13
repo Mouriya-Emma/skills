@@ -5,7 +5,7 @@ description: Use for the unattended Windows 11 agent VMs agent-vm-win11-01/-02 �
 
 # windows：Windows 11 agent VM
 
-两台 VMware 上的 Windows 11 23H2（build 22631，简体中文系统）供 AI 操作，无人值守：任何需要有人在机器前点击或输入的步骤都不成立。用户有时会经 Apollo/Moonlight 串流使用桌面；用户在桌面上时，不对该桌面做 GUI 或 windows-mcp 输入操作，只截图观察。两台由一台完整克隆而来，身份已拆开，按下表区分。
+两台 VMware 上的 Windows 11 23H2（build 22631，简体中文系统）供 AI 操作，无人值守：任何需要有人在机器前点击或输入的步骤都不成立。用户有时会经 Apollo/Moonlight 串流使用桌面。做 GUI 输入前先读 windows-mcp 的 `ControlStatus`：`wait_seconds` 大于 0 表示用户正在输入，等它归零再操作；截图上开着的窗口不能说明有人在用。两台由一台完整克隆而来，身份已拆开，按下表区分。
 
 | | `-01` | `-02` |
 |---|---|---|
@@ -33,7 +33,7 @@ description: Use for the unattended Windows 11 agent VMs agent-vm-win11-01/-02 �
 - `uv tool install windows-mcp --with opencv-python-headless` 装在 `Mo` 名下（dxcam 截图后端需要 `cv2`，缺了会退到只能截到旧画面的 pillow 后端）；配置 `C:\Users\Mo\.windows-mcp\config.toml`：streamable-http 监听 `0.0.0.0:8000`、Bearer `auth_key`、`ip_allowlist` 放行 NetBird 网段和 LAN 网段、`[control] consent_countdown_seconds = 0`（接管桌面不弹确认）。
 - 两台的 key 不同。key 只存在于各自的 `config.toml` 和本机 omomp 仓库的 `.omp/mcp.json`，不要打印到对话或日志。
 - 计划任务 `windows-mcp-server`：`Mo` 登录时在会话 1 启动，不限运行时长，退出后每分钟重启。日志在 `C:\Users\Mo\.windows-mcp\server.log` 和 `server.error.log`。
-- 显示器与睡眠超时都设为 0（`powercfg`），屏保关闭。显示器一关，桌面停止刷新，截图停在旧画面；windows-mcp 若在显示器关闭时启动，整个进程都用 pillow 后端，需在显示器开着时重启服务。截图的任务栏时钟应与真实时间一致。
+- 显示器与睡眠超时都设为 0（`powercfg`），屏保关闭。显示器一关，桌面停止刷新，截图停在旧画面；windows-mcp 若在显示器关闭时启动，整个进程都用 pillow 后端，需在显示器开着时重启服务。截图的任务栏时钟应与真实时间一致。Apollo 装了 SudoMaker Virtual Display Adapter，它会让 dxcam 丢失 DXGI 桌面复制（`0x887A0026`），截图退回 pillow 后端；pillow 画面是实时的，只是慢。
 - 改 `config.toml` 后要重启服务才生效：先 `schtasks /End /TN windows-mcp-server`，杀掉仍在监听 8000 端口的进程，再 `schtasks /Run /TN windows-mcp-server`。这几步写进 `.ps1` 执行，避免 Git Bash 改写 `/End` 等参数。
 - 改了 `mcp.json` 的 omp 会话要重启 harness 才会重新加载 MCP。
 
