@@ -5,7 +5,7 @@ description: Use for the unattended Windows 11 agent VMs agent-vm-win11-01/-02 �
 
 # windows：Windows 11 agent VM
 
-两台 VMware 上的 Windows 11 23H2（build 22631，简体中文系统）供 AI 操作，全无人值守：没有人坐在机器前，任何需要现场点击或输入的步骤都不成立。两台由一台完整克隆而来，身份已拆开，按下表区分。
+两台 VMware 上的 Windows 11 23H2（build 22631，简体中文系统）供 AI 操作，无人值守：任何需要有人在机器前点击或输入的步骤都不成立。用户有时会经 Apollo/Moonlight 串流使用桌面；用户在桌面上时，不对该桌面做 GUI 或 windows-mcp 输入操作，只截图观察。两台由一台完整克隆而来，身份已拆开，按下表区分。
 
 | | `-01` | `-02` |
 |---|---|---|
@@ -13,7 +13,7 @@ description: Use for the unattended Windows 11 agent VMs agent-vm-win11-01/-02 �
 | LAN 名（Kea 租约投影到 `hb.lan`） | `desktop-k3j5gqd.hb.lan` | `agent-win11-02.hb.lan` |
 | Windows 主机名 | `DESKTOP-K3J5GQD` | `AGENT-WIN11-02` |
 | ssh 别名（`~/.ssh/config`） | `agent-vm-win11`、`agent-vm-win11-01` | `agent-vm-win11-02` |
-| omp MCP server（`~/.omp/agent/mcp.json`） | `windows-mcp` | `windows-mcp-02` |
+| omp MCP server（`~/Ext/code/omomp/` 下各仓库被 git 忽略的 `.omp/mcp.json`） | `windows-mcp` | `windows-mcp-02` |
 
 ## 网络约束
 
@@ -25,22 +25,27 @@ description: Use for the unattended Windows 11 agent VMs agent-vm-win11-01/-02 �
 ## 系统与登录
 
 - 唯一账户 `Mo`：本地管理员、空密码，`AutoAdminLogon` 开机自动登录到 console 会话 1。
-- ssh 登录用 `~/.ssh/dev-dai`，默认 shell 是 `cmd.exe`，管理员会话已提权。ssh 会话不在桌面会话里，GUI 操作走 windows-mcp，或用 `schtasks` 在交互会话里起进程。
-- 工具链：`uv` 在 `C:\Users\Mo\.local\bin`（不在 PATH 上，用全路径），Python 由 uv 管理。
+- ssh 登录用 `~/.ssh/dev-dai`，默认 shell 是 Git Bash（`HKLM:\SOFTWARE\OpenSSH\DefaultShell` = `C:\Program Files\Git\bin\bash.exe`）。UAC 已关，ssh 会话（会话 0）和桌面会话都已提权。ssh 会话不在桌面会话里，GUI 操作走 windows-mcp，或用 `schtasks` 在交互会话里起进程。
+- 工具链用 winget 按 machine 范围安装（Git、gh、bun、sqlite3、Python、PowerShell 7 等）；machine PATH 另外带上 `C:\Users\Mo\.local\bin`（`uv`、`winclean`）、`C:\Users\Mo\.bun\bin` 和 Tern 目录，ssh 会话与桌面会话看到同一套工具。两台作为 omp 与 Tern 的测试机时，具体清单和测试做法见 omp-config 仓库里被 git 忽略的 `.omp/RULES.md`（在该仓库运行的 omp 会话以 `rule://RULES@project` 加载）。
 
 ## windows-mcp
 
-- `uv tool install windows-mcp` 装在 `Mo` 名下；配置 `C:\Users\Mo\.windows-mcp\config.toml`：streamable-http 监听 `0.0.0.0:8000`、Bearer `auth_key`、`ip_allowlist` 放行 NetBird 网段和 LAN 网段、`[control] consent_countdown_seconds = 0`（接管桌面不弹确认）。
-- 两台的 key 不同。key 只存在于各自的 `config.toml` 和本机 `~/.omp/agent/mcp.json`，不要打印到对话或日志。
+- `uv tool install windows-mcp --with opencv-python-headless` 装在 `Mo` 名下（dxcam 截图后端需要 `cv2`，缺了会退到只能截到旧画面的 pillow 后端）；配置 `C:\Users\Mo\.windows-mcp\config.toml`：streamable-http 监听 `0.0.0.0:8000`、Bearer `auth_key`、`ip_allowlist` 放行 NetBird 网段和 LAN 网段、`[control] consent_countdown_seconds = 0`（接管桌面不弹确认）。
+- 两台的 key 不同。key 只存在于各自的 `config.toml` 和本机 omomp 仓库的 `.omp/mcp.json`，不要打印到对话或日志。
 - 计划任务 `windows-mcp-server`：`Mo` 登录时在会话 1 启动，不限运行时长，退出后每分钟重启。日志在 `C:\Users\Mo\.windows-mcp\server.log` 和 `server.error.log`。
-- 改 `config.toml` 后要重启服务才生效：先 `schtasks /End /TN windows-mcp-server`，杀掉仍在监听 8000 端口的进程，再 `schtasks /Run /TN windows-mcp-server`。
+- 显示器与睡眠超时都设为 0（`powercfg`），屏保关闭。显示器一关，桌面停止刷新，截图停在旧画面；windows-mcp 若在显示器关闭时启动，整个进程都用 pillow 后端，需在显示器开着时重启服务。截图的任务栏时钟应与真实时间一致。
+- 改 `config.toml` 后要重启服务才生效：先 `schtasks /End /TN windows-mcp-server`，杀掉仍在监听 8000 端口的进程，再 `schtasks /Run /TN windows-mcp-server`。这几步写进 `.ps1` 执行，避免 Git Bash 改写 `/End` 等参数。
 - 改了 `mcp.json` 的 omp 会话要重启 harness 才会重新加载 MCP。
 
 ## 远程执行要点
 
-- `cmd.exe` 遇到以引号开头的命令（如 `"C:\Program Files\..."`）会剥掉引号后报错；先 `cd /d` 进目录，或改用脚本。`%`、`|` 在 cmd 和 PowerShell 两层解析下容易被吃掉。
-- 稍复杂的 PowerShell：本机写好 `.ps1`，`scp` 到 VM，再执行 `powershell -NoProfile -ExecutionPolicy Bypass -File x.ps1`，跑完删掉。
-- 原生命令（`ipconfig`、`netsh`、`schtasks`）输出是 GBK，经 ssh 读到会乱码。要读字段时用 PowerShell 对象（`Get-NetIPAddress`、`Get-ScheduledTask` 等）。
+- 远程命令是 POSIX shell，从本机只经一层引号：`ssh agent-vm-win11-01 'git -C ~/src/omp-config log -1'`。本机 zsh 里写 scp 目标要用 `"${h}:path"`，因为 `$h:e`、`$h:a` 会被 zsh 当成变量修饰符。
+- omp 的 `ssh://` 路径不支持 Windows 主机；读远程文件用 `ssh <别名> 'cat …'`。
+- Git Bash 会把像 POSIX 路径的参数改写成 Windows 路径，Windows 程序的 `/flag` 参数因此被破坏（如 `schtasks /End`）。写成 `//flag`，或只给这一条命令加 `MSYS_NO_PATHCONV=1`，或放进 `.ps1`；不要全局设置 `MSYS_NO_PATHCONV`。
+- 要以干净的 Windows 环境运行程序（不带 `MSYSTEM`、Git Bash 的 `HOME`、`SHELL` 等 MSYS 变量，PATH 取 machine 加 user），用 `winclean <程序> [参数…]`（`C:\Users\Mo\.local\bin\winclean` 与 `winclean.ps1`）。参数里的双引号会在传递中丢失，含双引号的内容走文件或 stdin。PowerShell 7 是 MSIX 包，只有 `%LOCALAPPDATA%\Microsoft\WindowsApps` 下的执行别名，不在 Git Bash 的 PATH 上，用 `winclean pwsh …`。
+- 稍复杂的 PowerShell：本机写好 `.ps1`，`scp` 到 VM，再执行 `powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w ~/x.ps1)"`，跑完删掉。Windows PowerShell 5.1 把不带 BOM 的 UTF-8 当 GBK 读，脚本只写 ASCII。
+- 系统 ANSI 代码页是 936。原生命令（`ipconfig`、`netsh`、`schtasks`）输出是 GBK，经 ssh 读到会乱码。要读字段时用 PowerShell 对象（`Get-NetIPAddress`、`Get-ScheduledTask` 等），或只对单条命令 `chcp.com 65001`，不改系统设置。
+- 交互式程序（omp、TUI）走 PTY：在 `exec_command` 里开不带远程命令的 `ssh -t <别名>`，再键入命令。把命令写在 ssh 命令行上时，PTY 里没有输出。
 - 会断开当前连接的操作（`ipconfig /release`、`netbird down`、改网卡），要么从另一条路执行（NetBird 断就从 LAN 进，反之亦然），要么写成脚本、用一次性 SYSTEM 计划任务后台跑完，再回来读日志。
 
 ## 再次克隆时拆身份
@@ -51,4 +56,4 @@ description: Use for the unattended Windows 11 agent VMs agent-vm-win11-01/-02 �
 2. 生成新的 `auth_key` 写进 `config.toml`，重启 windows-mcp。
 3. `Rename-Computer`：NetBIOS 名最多 15 个字符，超出会被截断。
 4. 从 LAN 进去：`netbird down`、停服务，移走并删除 `C:\ProgramData\Netbird\default.json`（里面是被克隆机器的私钥），启动服务，执行 `netbird up --hostname <新名字> --no-browser`。这里只能 SSO 登录：回调地址是 VM 上的 `localhost:53000`，用 `ssh -L 53000:127.0.0.1:53000` 转到本机，由用户本人在浏览器里打开登录链接。
-5. 重启；在 `~/.ssh/config` 和 `~/.omp/agent/mcp.json` 加新条目，并更新上表。
+5. 重启；在 `~/.ssh/config` 和 omomp 各仓库的 `.omp/mcp.json` 加新条目，并更新上表。
