@@ -54,6 +54,8 @@ D:\omp-test\bin\omptest list                               还存在的运行
 - `D:\omp-test\home\bin` 排在 PATH 最前，是因为 omp-config 的更新器会把 `omp-light` 写到 PATH 上 `omp` 所在的目录；放在这里，它写进沙箱而不是 Scoop 的 `shims`。
 - Tern 给每个 pane 重建用户的登录环境（`USERPROFILE`、`APPDATA`、`TEMP` 回到 `C:\Users\Mouriya`，只保留 `TERN_*`）。所以 `omptest tern` 在运行的 `tern\settings.json` 里把 `shell` 设为 `D:\omp-test\bin\omptest-pane.cmd`、`start_folder` 设为 `work`：pane 的 shell 按 `TERN_CONFIG_DIR` 认出所属运行，重新进入沙箱环境后再起 PowerShell。用 `tern new … -- <命令>` 直接起程序的 pane 不经过 shell 设置，命令要写成 `D:\omp-test\bin\omptest-pane.cmd <程序> [参数…]`。
 - 操作这次运行的 Tern 时，`tern.com` 也经 `omptest run <name> tern.com …` 调用，才会连到 `\\.\pipe\omptest-<name>`；直接跑 `tern.com` 连的是用户自己的 Tern。
+- 新运行的 Tern 刚起时，`omptest run <name> tern.com ls --json` 会先返回空的 `"sessions": []`，窗口就绪后才出现第一个 block；取 block id 前等到列表非空。
+- 每个新运行的 Tern 首启都弹「Let Tern keep omp up to date?」对话框：点「Not Now」，不点「Manage omp」。对话框开着时 `tern.com ls`/`split`/`capture` 照常应答，但它会遮住截图中间的一块。
 - `omptest clean` 先在运行环境里让 Tern 窗口经控制端点退出、停掉运行的 Tern 守护进程，再结束 `pids.txt` 里的进程、命令行里含运行目录或管道名的进程及其子进程，最后删除目录；有文件仍被占用时列出文件并以非零退出。
 - 有疑问时用 `powershell -NoProfile -ExecutionPolicy Bypass -File D:\omp-test\bin\sweep.ps1 -Minutes <n> -Exclude <正则>` 列出最近 n 分钟在 `C:\Users\Mouriya`、`D:\Applications`、`D:\Users`、`D:\Program Files`、`C:\ProgramData` 下改过的文件，确认测试没有写到沙箱外。用户同时在用这台机器，结果里有用户自己的写入，按时间和路径区分。
 
@@ -74,4 +76,5 @@ D:\omp-test\bin\omptest list                               还存在的运行
 - omp 的 `ssh://` 路径不支持 Windows 主机；读远程文件用 `ssh g16pro "type <路径>"`。`scp` 目标写 `g16pro:D:/omp-test/...`。
 - 稍复杂的 PowerShell：本机写好只含 ASCII 的 `.ps1`（Windows PowerShell 5.1 把不带 BOM 的 UTF-8 当 GBK 读），`scp` 到 `D:\omp-test` 下，`powershell -NoProfile -ExecutionPolicy Bypass -File D:\omp-test\…\x.ps1` 执行，跑完删掉。
 - 系统 ANSI 代码页是 936，原生命令（`ipconfig`、`schtasks`、`powercfg`）输出 GBK，经 ssh 读到会乱码。要读字段时用 PowerShell 对象，或只对单条命令 `chcp.com 65001`，不改系统设置。
-- 交互式程序（omp、TUI）走 PTY：`exec_command` 里开不带远程命令的 `ssh -t g16pro`，进入 `cmd.exe` 后再键入 `D:\omp-test\bin\omptest run <name> omp …`。
+- 交互式程序（omp、TUI）走 PTY：`exec_command` 里开不带远程命令的 `ssh -t g16pro`，进入 `cmd.exe` 后再键入 `D:\omp-test\bin\omptest run <name> omp …`。经 `write_stdin` 给 `cmd.exe` 回车要发 `\r`；只发 `\n` 时这一行停在提示符上不执行。
+- `cmd.exe` 里读上一条命令的退出码另起一行 `echo EXIT=%errorlevel%`；和命令写在同一行时 `%errorlevel%` 在执行前就被展开。
