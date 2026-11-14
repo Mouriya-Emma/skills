@@ -35,7 +35,7 @@ g16pro 是用户自己日常使用的实体机（Windows 11 23H2，build 22631�
 
 | 路径 | 内容 | 生命周期 |
 |---|---|---|
-| `D:\omp-test\bin` | `omptest.cmd`/`omptest.ps1`、Tern pane 用的 `omptest-pane.cmd`、`sweep.ps1` | 长期 |
+| `D:\omp-test\bin` | `omptest.cmd`/`omptest.ps1`、Tern pane 的 shell `pane\powershell.exe`、`sweep.ps1` | 长期 |
 | `D:\omp-test\home` | 测试用的 `HOME`/`USERPROFILE`：`.omp`（配置、凭据、插件）、`.bun`、`bin`（omp 的 Scoop shim 副本、`sqlite3.exe`、`omp-light`） | 长期 |
 | `D:\omp-test\src` | 测试用的源码检出（如 `omp-config`） | 长期 |
 | `D:\omp-test\runs\<name>` | 一次测试：`work`（工作目录）、`tmp`、`appdata\Roaming`、`appdata\Local`、`tern`（Tern 配置、日志、控制端点）、`sessions`（omp 会话）、`pids.txt` | 测完 `omptest clean <name>` 删除 |
@@ -48,11 +48,12 @@ D:\omp-test\bin\omptest start <name> <program> [args...]   脱离启动并记录
 D:\omp-test\bin\omptest tern  <name> [args...]             启动属于这次运行的 Tern 窗口
 D:\omp-test\bin\omptest clean <name>                       关掉这次运行启动的一切并删除 runs\<name>
 D:\omp-test\bin\omptest list                               还存在的运行
+D:\omp-test\bin\omptest pane  [program [args...]]          在这次运行的 Tern pane 里重新进入沙箱再起程序
 ```
 
 - 环境：`HOME`/`USERPROFILE` 指向 `D:\omp-test\home`；`APPDATA`、`LOCALAPPDATA`、`TEMP`/`TMP`、`TERN_CONFIG_DIR`、`TERN_DAEMON_SOCKET`（`\\.\pipe\omptest-<name>`）、`STENCIL_LOG_DIR`、`PI_CODING_AGENT_SESSION_DIR` 指向 `runs\<name>`；用户环境里指向 Scoop `persist` 的 `BUN_INSTALL*`、`UV_*`、`CARGO_HOME` 改指 `D:\omp-test\home`；PATH 取 machine 加 user，前面加 `D:\omp-test\home\bin`、`.local\bin`、`.bun\bin`；继承来的 MSYS、`TERN_*`、`STENCIL_*`、`PI_*`、`OMP_*` 变量清掉。
 - `D:\omp-test\home\bin` 排在 PATH 最前，是因为 omp-config 的更新器会把 `omp-light` 写到 PATH 上 `omp` 所在的目录；放在这里，它写进沙箱而不是 Scoop 的 `shims`。
-- Tern 给每个 pane 重建用户的登录环境（`USERPROFILE`、`APPDATA`、`TEMP` 回到 `C:\Users\Mouriya`，只保留 `TERN_*`）。所以 `omptest tern` 在运行的 `tern\settings.json` 里把 `shell` 设为 `D:\omp-test\bin\omptest-pane.cmd`、`start_folder` 设为 `work`：pane 的 shell 按 `TERN_CONFIG_DIR` 认出所属运行，重新进入沙箱环境后再起 PowerShell。用 `tern new … -- <命令>` 直接起程序的 pane 不经过 shell 设置，命令要写成 `D:\omp-test\bin\omptest-pane.cmd <程序> [参数…]`。
+- Tern 给每个 pane 重建用户的登录环境（`USERPROFILE`、`APPDATA`、`TEMP` 回到 `C:\Users\Mouriya`，只保留 `TERN_*`）。所以 `omptest tern` 在运行的 `tern\settings.json` 里把 `shell` 设为 `D:\omp-test\bin\pane\powershell.exe`、`start_folder` 设为 `work`。这个程序名让 Tern 按 PowerShell 的规则给 pane 的命令行加引号，和用户自己的 Tern 一样；它执行 `omptest pane --powershell`：按 `TERN_CONFIG_DIR` 认出所属运行，把每次调用的参数追加到 `runs\<name>\pane-args.log`，重新进入沙箱环境后起 Windows PowerShell 5.1，带 `-c <命令行>` 时就在这个 PowerShell 里执行该行。用 `tern new … -- <命令>` 直接起程序的 pane 不经过 shell 设置，命令要写成 `D:\omp-test\bin\omptest pane <程序> [参数…]`。
 - 操作这次运行的 Tern 时，`tern.com` 也经 `omptest run <name> tern.com …` 调用，才会连到 `\\.\pipe\omptest-<name>`；直接跑 `tern.com` 连的是用户自己的 Tern。
 - 新运行的 Tern 刚起时，`omptest run <name> tern.com ls --json` 会先返回空的 `"sessions": []`，窗口就绪后才出现第一个 block；取 block id 前等到列表非空。
 - 每个新运行的 Tern 首启都弹「Let Tern keep omp up to date?」对话框：点「Not Now」，不点「Manage omp」。对话框开着时 `tern.com ls`/`split`/`capture` 照常应答，但它会遮住截图中间的一块。
