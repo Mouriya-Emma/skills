@@ -7,12 +7,13 @@ description: 起草或修复 open PR 的 closing link、实现说明和重试评
 
 PR 承载实现说明与证据：正文说明 diff 怎样兑现 issue 的原因、结果与契约；证据由 `skill://gh-contract` 的 `ghc` 采集，作为证据包 comment 发在 PR 上。问题、Why、范围和 checkpoint 在 `skill://writing-issue`，裁决在 `skill://review-pr`。遵从 `~/.claude/rules/git.rule.md` 的「GitHub issue / PR routing rule」，更严的 repo-local 流程优先。
 
-PR 用哪个模板由它关闭的 issue 决定，不混用：关闭「无代码变更」issue 的用「无代码变更 PR 模板」，其余用「PR body 模板」并发布证据包。总体验收 issue 不经 PR 关闭。
+PR 用哪个模板由它交付的 issue 决定，不混用：交付「无代码变更」issue 的用「无代码变更 PR 模板」，其余用「PR body 模板」并发布证据包；把树的缓冲分支合入默认分支的用「tree PR 模板」。总体验收 issue 不经自己的 PR 关闭，证据发在它上面，由 tree PR 关闭。
 
 ## PR 身份与正文
 
-- 一个 PR 关一个真实 issue；多个独立问题拆开，单一连贯 refactor 可跨子系统。umbrella 工作关所实现的 child，不关 parent。
+- 一个 PR 交付一个真实 issue；多个独立问题拆开，单一连贯 refactor 可跨子系统。
 - 第一行 `Closes #<N>`（同仓库）或 `Closes <owner>/<repo>#<N>`（跨仓库）；`Fixes` / `Resolves` 等价。PR 不作 sub-issue，closing keyword 是它连接 issue 的机制。
+- PR 合入哪个分支由 issue 的位置决定，`ghc lint` 检查：独立 issue 合入默认分支，GitHub 在合并时关闭它。树内 child 合入树的缓冲分支 `tree/<树根 owner>-<树根 repo>-<树根编号>`；GitHub 不为合入非默认分支的 PR 关闭 issue，child 在 tree PR 合并时关闭。同一轮的 child 各开一个 PR，全部指向同一个 head：实现说明只写本 issue 负责的部分，其他 child 的改动不复述。
 - 中文标题和正文；固定 token、代码、路径、命令与工具原样输出不翻译。摘要 1–3 句写改了什么；实现怎样做写在「实现说明」，不复制 issue 的业务 Why，不逐文件复述 diff。conventional-commit 前缀仅在 repo 已有惯例时用。
 - 只修改 open PR。重试续用原 branch/PR：实现变化后同步更新正文的实现说明，在新 HEAD 上重新采集并发布证据包，再另发 PR-thread 评论。已合并记录及后续缺陷按全局路由处理。
 
@@ -46,7 +47,7 @@ PR 用哪个模板由它关闭的 issue 决定，不混用：关闭「无代码�
 4. 先提交再采集：工作区有未提交的 tracked 改动时 `ghc` 拒绝采集，HEAD 变了就在新 HEAD 上重跑。不手写输出、不挪用别次输出，正文不贴日志或截图。
 5. `ghc ev check <issue>` 退出码为 0 才开 PR；它列出的缺失、过期、无效行就是待办。
 
-运行强度按 `~/.claude/rules/runtime-verification-required.rule.md`：Web 用 `skill://ego-browser` 完整执行真实用户路径，经 `ghc` 采集截图；首页探活、单接口 curl 或 spec 名称不能替代它。mock、stub、fake、in-memory 或实现者本次自写的测试不能充当覆盖行的观察；套件计数、CI 绿勾、typecheck/lint/build 只属于卫生行。历史反例见 [acceptance-cases.md](../writing-issue/references/acceptance-cases.md)。
+这次采集就是该验收表唯一的一次执行：review 判断证据而不重跑，合并后也不重跑。强度按 issue 的「测试形态」，不升级：树内 child 按它声明的形态，独立 issue 与总体验收是 e2e。运行强度按 `~/.claude/rules/runtime-verification-required.rule.md`：Web 用 `skill://ego-browser` 完整执行真实用户路径，经 `ghc` 采集截图；首页探活、单接口 curl 或 spec 名称不能替代它。mock、stub、fake、in-memory 或实现者本次自写的测试不能充当覆盖行的观察；套件计数、CI 绿勾、typecheck/lint/build 只属于卫生行。历史反例见 [acceptance-cases.md](../writing-issue/references/acceptance-cases.md)。
 
 真实验证受阻时：属于本 PR 的问题先修；外部 blocker 用 `skill://writing-issue` 发布并写解除条件，确需操作员独有判断才提问。缺凭据先按 `credentials-from-owning-source` 规则查拥有方的 secret store 与本机既有凭据来源，不向用户索要 token。没有证据不宣称 ready；确实无法解除的阻塞在 PR thread 写明「验收行 #N 阻塞——<原因> + <blocker issue 链接 / 已提出的问题>」，交 reviewer 裁决，证据包里该行如实显示为缺失。
 
@@ -94,6 +95,26 @@ Closes <owner>/<repo>#<N>
 - <删除或收窄的内容，以及删减的原因；无则写「无」>
 ```
 
+## tree PR 模板
+
+树的剩余 child 全部合入缓冲分支、总体验收 issue 的证据包齐全后，在每个涉及的 repo 开一个 tree PR：head 是缓冲分支，base 是默认分支。第一行 `Tree <树根>` 声明它属于哪棵树；随后逐行 `Closes` 该 repo 里全部未关闭的树内 issue，树根所在 repo 的 tree PR 还关闭树根，合并时由 GitHub 一起关闭。它没有自己的实现说明与证据包：实现说明在各 child 的 PR 里，证据在 child PR 与总体验收 issue 上。
+
+```markdown
+Tree <owner>/<repo>#<树根>
+
+## 摘要
+
+<1–3 句：这棵树交付了什么。>
+
+## 关闭
+
+Closes <owner>/<repo>#<N>（<合入缓冲分支的 PR 链接>）
+Closes <owner>/<repo>#<总体验收 issue>（证据包 <链接>）
+Closes <owner>/<repo>#<树根>
+```
+
+`ghc lint <tree PR>` 检查 head、base 与关闭集合；合并前提用 `ghc merge-ready <树根> --tree`，树根之外的 repo 的 tree PR 先合并，树根所在 repo 的最后合并。
+
 ## 创建与发布
 
 ```bash
@@ -101,10 +122,10 @@ ghc ev check <issue>        # 标准 PR：退出码 0 才继续
 git push -u origin <branch>
 gh pr create --repo <owner>/<repo> --title "<中文标题>" --body-file <body-file>
 ghc lint <PR>               # 身份与模板；无代码变更另查范围、链接与结果标注
-ghc ev publish <PR>         # 发布证据包或无代码变更检查，并写 evidence/complete 状态
+ghc ev publish <PR>         # 发布证据包或无代码变更检查，并在 HEAD 写本 issue 的 evidence/<owner>/<repo>#<N> 状态
 ```
 
-`ghc lint` 非零时检查 issue 身份、keyword 拼写与跨 repo 前缀，open PR 用 `gh pr edit <number> --repo <owner>/<repo> --body-file <body-file>` 修正后重跑。没有 `addClosingIssueReference` mutation；合并后不修 body。`ghc ev publish` 非零时按输出补采后重发；它发现疑似凭据会拒绝发布，换成不打印凭据的命令重新采集。
+`ghc lint` 非零时检查 issue 身份、keyword 拼写、跨 repo 前缀与 base 分支，open PR 用 `gh pr edit <number> --repo <owner>/<repo> --body-file <body-file>` 修正后重跑。没有 `addClosingIssueReference` mutation；合并后不修 body。`ghc ev publish` 非零时按输出补采后重发；它发现疑似凭据会拒绝发布，换成不打印凭据的命令重新采集。
 
 ## 重试评论模板（标准 PR）
 

@@ -7,6 +7,8 @@ export type Ref = { readonly repo: Repo; readonly number: number };
 
 export const repoKey = (r: Repo): string => `${r.owner}/${r.name}`;
 export const refKey = (r: Ref): string => `${repoKey(r.repo)}#${r.number}`;
+/** The buffer branch a tree's child PRs merge into, in every repo the tree touches; only the tree PR merges it into the default branch. */
+export const treeBranch = (root: Ref): string => `tree/${root.repo.owner}-${root.repo.name}-${root.number}`;
 export const sameRef = (a: Ref, b: Ref): boolean =>
   a.number === b.number &&
   a.repo.owner.toLowerCase() === b.repo.owner.toLowerCase() &&

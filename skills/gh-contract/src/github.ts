@@ -12,8 +12,6 @@ export type Comment = {
   readonly url: string;
 };
 
-export type ClosedBy = { readonly pr: Ref; readonly merged: boolean; readonly mergeCommit: string | null; readonly mergedAt: string | null };
-
 export type IssueData = {
   readonly ref: Ref;
   /** GraphQL node ID, for sub-issue mutations. */
@@ -29,7 +27,6 @@ export type IssueData = {
   readonly parent: Ref | null;
   readonly subIssues: readonly { ref: Ref; state: "OPEN" | "CLOSED"; title: string }[];
   readonly comments: readonly Comment[];
-  readonly closedBy: ClosedBy | null;
 };
 
 export type PrData = {
@@ -45,12 +42,34 @@ export type PrData = {
   readonly baseRefName: string;
   readonly baseRefOid: string;
   readonly mergeable: "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
-  readonly checksState: string | null;
+  readonly defaultBranch: string;
+  /** Every check run and commit status on the head commit. */
+  readonly checks: readonly Check[];
   readonly closingIssues: readonly Ref[];
   readonly files: readonly string[];
   readonly commits: readonly string[];
   readonly comments: readonly Comment[];
 };
+
+export type CheckState = "success" | "pending" | "failure";
+export type Check = { readonly name: string; readonly state: CheckState };
+
+function checkRunState(status: string, conclusion: string | null): CheckState {
+  if (status !== "COMPLETED") return "pending";
+  return conclusion === "SUCCESS" || conclusion === "NEUTRAL" || conclusion === "SKIPPED" ? "success" : "failure";
+}
+
+function statusState(state: string): CheckState {
+  if (state === "SUCCESS") return "success";
+  return state === "PENDING" || state === "EXPECTED" ? "pending" : "failure";
+}
+
+function parseCheck(o: Obj): Check {
+  const t = str(field(o, "__typename"), "check.__typename");
+  if (t === "CheckRun") return { name: str(field(o, "name"), "check.name"), state: checkRunState(str(field(o, "status"), "check.status"), strOrNull(field(o, "conclusion"), "check.conclusion")) };
+  if (t === "StatusContext") return { name: str(field(o, "context"), "status.context"), state: statusState(str(field(o, "state"), "status.state")) };
+  throw new EnvError(`unexpected check type ${t}`);
+}
 
 const PAGE = "pageInfo { hasNextPage endCursor }";
 
@@ -118,8 +137,6 @@ export async function getIssue(ref: Ref): Promise<IssueData> {
       `query($o:String!,$n:String!,$num:Int!){repository(owner:$o,name:$n){issue(number:$num){
         id title state stateReason body createdAt lastEditedAt url
         parent { number repository { name owner { login } } }
-        timelineItems(itemTypes:[CLOSED_EVENT], last:1){ nodes { ... on ClosedEvent { closer { __typename
-          ... on PullRequest { number merged mergedAt mergeCommit { oid } repository { name owner { login } } } } } } }
       }}}`,
       v,
     ),
@@ -138,21 +155,6 @@ export async function getIssue(ref: Ref): Promise<IssueData> {
     (d) => obj(field(node(d, "issue"), "subIssues"), "subIssues"),
   );
   const parent = objOrNull(field(core, "parent"), "parent");
-  const closedNodes = arr(field(obj(field(core, "timelineItems"), "timelineItems"), "nodes"), "timeline");
-  let closedBy: ClosedBy | null = null;
-  const last = closedNodes.at(-1);
-  if (last !== undefined) {
-    const closer = objOrNull(field(obj(last, "closedEvent"), "closer"), "closer");
-    if (closer !== null && field(closer, "__typename") === "PullRequest") {
-      const mc = objOrNull(field(closer, "mergeCommit"), "mergeCommit");
-      closedBy = {
-        pr: refOf(closer, "closer"),
-        merged: bool(field(closer, "merged"), "closer.merged"),
-        mergeCommit: mc === null ? null : str(field(mc, "oid"), "mergeCommit.oid"),
-        mergedAt: strOrNull(field(closer, "mergedAt"), "closer.mergedAt"),
-      };
-    }
-  }
   const createdAt = str(field(core, "createdAt"), "createdAt");
   return {
     ref,
@@ -170,7 +172,6 @@ export async function getIssue(ref: Ref): Promise<IssueData> {
       return { ref: refOf(o, "subIssue"), state: state2(field(o, "state"), "subIssue.state"), title: str(field(o, "title"), "subIssue.title") };
     }),
     comments: comments.map(parseComment),
-    closedBy,
   };
 }
 
@@ -181,7 +182,9 @@ export async function getPr(ref: Ref): Promise<PrData> {
       `query($o:String!,$n:String!,$num:Int!){repository(owner:$o,name:$n){pullRequest(number:$num){
         title state isDraft body url headRefOid headRefName baseRefName baseRefOid mergeable
         headRepository { name owner { login } }
-        commits(last:1){ nodes { commit { statusCheckRollup { state } } } }
+        repository { defaultBranchRef { name } }
+        commits(last:1){ nodes { commit { statusCheckRollup { contexts(first:100){ nodes { __typename
+          ... on CheckRun { name status conclusion } ... on StatusContext { context state } } } } } } }
       }}}`,
       v,
     ),
@@ -219,6 +222,8 @@ export async function getPr(ref: Ref): Promise<PrData> {
   const headRepo = objOrNull(field(core, "headRepository"), "headRepository");
   const lastCommit = arr(field(obj(field(core, "commits"), "commits"), "nodes"), "commits").at(-1);
   const rollup = lastCommit === undefined ? null : objOrNull(field(obj(field(obj(lastCommit, "c"), "commit"), "commit"), "statusCheckRollup"), "rollup");
+  const checkNodes = rollup === null ? [] : arr(field(obj(field(rollup, "contexts"), "contexts"), "nodes"), "contexts");
+  const defaultRef = objOrNull(field(obj(field(core, "repository"), "repository"), "defaultBranchRef"), "defaultBranchRef");
   return {
     ref,
     title: str(field(core, "title"), "title"),
@@ -235,12 +240,47 @@ export async function getPr(ref: Ref): Promise<PrData> {
     baseRefName: str(field(core, "baseRefName"), "baseRefName"),
     baseRefOid: str(field(core, "baseRefOid"), "baseRefOid"),
     mergeable,
-    checksState: rollup === null ? null : str(field(rollup, "state"), "rollup.state"),
+    defaultBranch: defaultRef === null ? "" : str(field(defaultRef, "name"), "defaultBranchRef.name"),
+    checks: checkNodes.map((c) => parseCheck(obj(c, "check"))),
     closingIssues: closing.map((c) => refOf(obj(c, "closing"), "closing")),
     files: files.map((f) => str(field(obj(f, "file"), "path"), "file.path")),
     commits: commits.map((c) => str(field(obj(field(obj(c, "c"), "commit"), "commit"), "oid"), "oid")),
     comments: comments.map(parseComment),
   };
+}
+
+export type MergedPr = { readonly ref: Ref; readonly body: string; readonly headRefOid: string; readonly mergeCommit: string; readonly mergedAt: string };
+
+/** PRs merged into `base` (GitHub also marks a PR merged when another PR merges its head commit). */
+export async function mergedPrsInto(repo: Repo, base: string): Promise<MergedPr[]> {
+  const rows = arr(
+    await ghJson(["pr", "list", "--repo", repoKey(repo), "--base", base, "--state", "merged", "--limit", "500", "--json", "number,body,headRefOid,mergeCommit,mergedAt"]),
+    "prs",
+  );
+  return rows.map((r) => {
+    const o = obj(r, "pr");
+    return {
+      ref: { repo, number: num(field(o, "number"), "pr.number") },
+      body: str(field(o, "body"), "pr.body"),
+      headRefOid: str(field(o, "headRefOid"), "pr.headRefOid"),
+      mergeCommit: str(field(obj(field(o, "mergeCommit"), "pr.mergeCommit"), "oid"), "pr.mergeCommit.oid"),
+      mergedAt: str(field(o, "mergedAt"), "pr.mergedAt"),
+    };
+  });
+}
+
+/** PRs whose head branch is `head`, in the given state. */
+export async function prsFrom(repo: Repo, head: string, state: "open" | "merged"): Promise<Ref[]> {
+  const rows = arr(await ghJson(["pr", "list", "--repo", repoKey(repo), "--head", head, "--state", state, "--json", "number"]), "prs");
+  return rows.map((r) => ({ repo, number: num(field(obj(r, "pr"), "number"), "pr.number") }));
+}
+
+/** Tip of a remote branch, or null when it does not exist. */
+export async function branchHead(repo: Repo, branch: string): Promise<string | null> {
+  const r = await run(["gh", "api", `repos/${repoKey(repo)}/git/ref/heads/${branch.split("/").map(encodeURIComponent).join("/")}`, "--jq", ".object.sha"]);
+  if (r.code === 0) return r.stdout.trim();
+  if (/HTTP 404/.test(r.stderr)) return null;
+  throw new EnvError(`branch ${branch}: ${r.stderr.trim()}`);
 }
 
 export async function commitStatus(repo: Repo, sha: string, context: string): Promise<{ state: string; description: string; targetUrl: string | null } | null> {

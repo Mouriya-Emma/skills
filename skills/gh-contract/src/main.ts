@@ -8,7 +8,7 @@ import { fetchAll } from "./fetch.ts";
 import { gateEntries, headerFor } from "./gate.ts";
 import { getIssue, getPr } from "./github.ts";
 import { lint, printDiagnostics } from "./lint.ts";
-import { prMergeReady, treeCloseReady } from "./merge.ts";
+import { prMergeReady, treeMergeReady } from "./merge.ts";
 import { checkIdentity } from "./pr.ts";
 import { EnvError, UsageError } from "./proc.ts";
 import { parseRefArg } from "./ref.ts";
@@ -21,11 +21,11 @@ const HELP = `ghc — GitHub issue/PR 内容契约
   ghc ev run <issue> --row N[,M] [--step S] [--artifacts DIR] [--checkout PATH]... [--timeout SEC] -- <command>
   ghc ev attach <issue> --row N[,M] [--step S] [--checkout PATH]... <image|dir>...
   ghc ev check <issue|PR>                     证据是否齐全（issue：对当前检出 HEAD；PR：对 PR HEAD）
-  ghc ev publish <PR|总体验收 issue>          发布证据包 comment，并写 evidence/complete 状态
-  ghc gate header <PR> --kind review|验收 --result PASS|FAIL@GateN|"NOT ACCEPTED" [--design REF]
-  ghc gate list <PR>                          列出 gate 结论及其是否仍有效
-  ghc merge-ready <PR> --issue <ref> --head <sha> [--base BR] [--require-gate review,验收]
-  ghc merge-ready <umbrella> --tree
+  ghc ev publish <PR|总体验收 issue>          发布证据包 comment，并写 evidence/<issue> 状态
+  ghc gate header <PR> --result PASS|FAIL@GateN [--design REF]
+  ghc gate list <PR>                          列出 review 结论及其是否仍有效
+  ghc merge-ready <PR> --issue <ref> --head <sha>
+  ghc merge-ready <树根> --tree
 
 <ref> 写 owner/repo#N 或 github.com 链接。`;
 
@@ -122,23 +122,23 @@ async function main(argv: readonly string[]): Promise<number> {
       }
     }
     case "gate": {
-      const f = parseFlags(rest, ["--kind", "--result", "--design"], []);
+      const f = parseFlags(rest, ["--result", "--design"], []);
       const pr = await getPr(parseRefArg(f.positional[0], "PR"));
-      const id = checkIdentity(pr, null);
-      if (id.issue === null) throw new UsageError("PR 正文第一行没有 Closes，无法确定 issue");
-      const issue = await getIssue(id.issue);
+      const target = checkIdentity(pr, null).target;
+      if (target === null) throw new UsageError("PR 正文第一行没有 Closes，无法确定 issue");
+      if (target.kind === "tree") throw new UsageError("tree PR 没有 review 结论：合并前提用 ghc merge-ready <树根> --tree");
+      const issue = await getIssue(target.issue);
       switch (sub) {
         case "header": {
-          const kind = one(f, "--kind");
           const result = one(f, "--result");
-          if (kind === null || result === null) throw new UsageError("gate header 需要 --kind 与 --result");
-          process.stdout.write(`${headerFor(pr, issue, kind, result, one(f, "--design"))}\n`);
+          if (result === null) throw new UsageError("gate header 需要 --result");
+          process.stdout.write(`${headerFor(pr, issue, result, one(f, "--design"))}\n`);
           return 0;
         }
         case "list": {
           for (const e of gateEntries(pr, issue)) {
             const state = e.stale.length === 0 ? "有效" : `失效（${e.stale.join("；")}）`;
-            process.stdout.write(`${e.header.gate}\t${e.header.verdict.kind}\t${state}\t${e.comment.url}\n`);
+            process.stdout.write(`review\t${e.header.verdict.kind}\t${state}\t${e.comment.url}\n`);
           }
           return 0;
         }
@@ -147,19 +147,12 @@ async function main(argv: readonly string[]): Promise<number> {
       }
     }
     case "merge-ready": {
-      const f = parseFlags([sub ?? "", ...rest].filter((x) => x !== ""), ["--issue", "--head", "--base", "--require-gate"], ["--tree"]);
-      const ref = parseRefArg(f.positional[0], "PR 或 umbrella");
-      if (f.bools.has("--tree")) return printDiagnostics(await treeCloseReady(ref));
+      const f = parseFlags([sub ?? "", ...rest].filter((x) => x !== ""), ["--issue", "--head"], ["--tree"]);
+      const ref = parseRefArg(f.positional[0], "PR 或树根");
+      if (f.bools.has("--tree")) return printDiagnostics(await treeMergeReady(ref));
       const head = one(f, "--head");
       if (head === null) throw new UsageError("merge-ready 需要 --head <授权的 sha>");
-      return printDiagnostics(
-        await prMergeReady(ref, {
-          issue: parseRefArg(one(f, "--issue") ?? undefined, "--issue"),
-          head,
-          base: one(f, "--base"),
-          gates: (one(f, "--require-gate") ?? "").split(",").filter((x) => x !== ""),
-        }),
-      );
+      return printDiagnostics(await prMergeReady(ref, { issue: parseRefArg(one(f, "--issue") ?? undefined, "--issue"), head }));
     }
     default:
       throw new UsageError(`未知命令 ${cmd}；ghc help 查看用法`);

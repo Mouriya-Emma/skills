@@ -10,8 +10,8 @@ label 遵守目标 repo/preset 分类契约，不把别的 repo 的 `kind:code`�
 
 ## 发布前核对
 
-- SKILL.md「成树判据」已过：同方向 ≥2 个相关 issue 时有树根——umbrella，或充当树根的 audit（契约/设计在其决策 comment）；树根承载契约 / 总体验收指向 / 编排，不是按严重度分组的范围索引。下文「umbrella」对 audit 树根同样适用。
-- 依赖图与编排含物理共面盘点：同改一个文件的 children 已串行排链；「依赖关系：无」的 child 已对照过编排区块。
+- SKILL.md「成树判据」已过：同方向 ≥2 个相关 issue 时有树根——umbrella，或充当树根的 audit（契约/设计在其决策 comment）；树根承载契约 / 总体验收指向 / 依赖图，不是按严重度分组的范围索引。下文「umbrella」对 audit 树根同样适用。
+- 全树没有编排内容：由谁或哪个 agent、模型实现，实现顺序、并行、分支安排都不在 issue 里。
 - 切分按 SKILL.md「切分轴」：children 是实现责任单元而非功能；每项权威契约在 umbrella 有语义、唯一 owner 与落地 owner child；消费者 Depends on owner 后置条件且不本地重定义契约；没有只能 typecheck 的空基座 child。`ghc lint <树根> --tree` 通过：恰好一个总体验收 issue、组合对象与依赖完整、每个非 e2e child 出现在总体验收的「经由」里、每个 child 自身合契约。
 - 每个 child 的目标可追溯到方向 / 契约 / repo 既有承诺；追溯不到的进口目标未立 child。
 - 单个 issue 满足 `skill://writing-issue` 的来源、原子性、中文正文和逐条结果验收；没有内部脚手架，引用都在完整来源中核实。

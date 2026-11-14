@@ -16,7 +16,7 @@ description: 起草或修订单个 GitHub issue，定义结果验收和 parent �
 
 ## 一个问题，一份结果契约
 
-**原子性：** 一段连贯 Why 能论证整个 issue；若自然裂成几个独立问题，就拆 children，由 umbrella 说明共同 driver，树内 children 按 [writing-complex-issues](../writing-complex-issues/SKILL.md)「切分轴」沿实现责任切分，不按功能切。不要按版本、批次、repo、时间窗或标题关键词机械分组，归属要读实际 body 后判断。标题和正文不放草稿 ID、agent ID、working-group 名或临时源树路径；关联项用标题或真实链接。
+**原子性：** 一段连贯 Why 能论证整个 issue；若自然裂成几个独立问题，就拆 children，由 umbrella 说明共同 driver，树内 children 按 [writing-complex-issues](../writing-complex-issues/SKILL.md)「切分轴」沿实现责任切分，不按功能切。不要按版本、批次、repo、时间窗或标题关键词机械分组，归属要读实际 body 后判断。标题和正文不放草稿 ID、agent ID、working-group 名或临时源树路径；关联项用标题或真实链接。issue 也不写编排：由谁或哪个 agent、模型实现、审查、验收，实现顺序、并行与分支安排都由交付方按 `skill://delivering-issues` 决定，写进 issue 会把 issue 和某台机器的配置绑在一起；agent、模型或交付流程本身就是要改的对象时除外。
 
 **问题写到原因：** 先写可观察症状与影响，再写原因：哪个责任单元的哪项状态/规则、哪条不变量或缺失的能力产生了症状，附文件 + 符号 + 当前行为的概念锚点。原因在写作期查证并带证据：派 subagent 读代码、复现、查日志或跑实验，不开前置调查 issue Blocks 实现，也不把未证实原因标成假设留给实现者。不影响修法的旁支原因不写。多个症状同根时写根及其覆盖面。新功能没有被违反的不变量，写现有责任单元缺什么能力，不编造违约。原因不是改法：写「值在 Y 处未经 parse 跨域」，不写「在 Y 加校验函数」。
 
@@ -42,7 +42,7 @@ description: 起草或修订单个 GitHub issue，定义结果验收和 parent �
 - `最薄入口`：owner 经最薄真实入口观察它维护的状态语义（合法转移、拒绝非法输入、生命周期终点）。
 - `driver`：固定输入的一次性 driver 调用公开 API。
 
-不在 issue 树里的 issue 只能是 `e2e`。树内 child 按 [child-body.md](../writing-complex-issues/references/child-body.md) 选择，整棵树的真实 e2e 由总体验收 issue 承担。面与形态的合法组合由 `ghc lint` 检查。
+不在 issue 树里的 issue 只能是 `e2e`。树内 child 按 [child-body.md](../writing-complex-issues/references/child-body.md) 选择，整棵树的真实 e2e 由总体验收 issue 承担。面与形态的合法组合由 `ghc lint` 检查。验收表只执行一次：实现者按测试形态采集的证据就是验收，review 判断证据而不重跑，合并后也不重跑。
 
 ### checkpoint 写法
 

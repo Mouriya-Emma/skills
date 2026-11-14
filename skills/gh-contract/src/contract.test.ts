@@ -4,8 +4,10 @@ import type { EvidenceRecord } from "./evidence/record.ts";
 import { packComplete, parsePack, renderPack, toPack } from "./evidence/render.ts";
 import { clauseText } from "./fetch.ts";
 import { parseHeader, renderHeader } from "./gate.ts";
-import type { IssueData } from "./github.ts";
+import type { IssueData, PrData } from "./github.ts";
 import { parseIssue, type Row } from "./issue.ts";
+import { checkPlacement, checkTreePr } from "./pr.ts";
+import type { Ref } from "./ref.ts";
 
 const repo = { owner: "acme", name: "app" };
 const errors = (text: string, hasParent = false) =>
@@ -140,7 +142,6 @@ describe("evidence pack", () => {
       parent: null,
       subIssues: [],
       comments: [],
-      closedBy: null,
     };
     const head = "a".repeat(40);
     const record: EvidenceRecord = {
@@ -192,10 +193,77 @@ describe("contract references", () => {
 
 describe("gate header", () => {
   test("renders and parses the inputs a verdict observed", () => {
-    const h = { gate: "review" as const, verdict: { kind: "fail" as const, gate: 3 }, head: "b".repeat(40), base: "main", issueRev: "2026-11-02T00:00:00Z", design: null };
+    const h = { verdict: { kind: "fail" as const, gate: 3 }, head: "b".repeat(40), base: "main", issueRev: "2026-11-02T00:00:00Z", design: null };
     const line = renderHeader(h);
     expect(line).toBe(`Gate 结论 · review · FAIL@Gate3 · HEAD ${"b".repeat(40)} · base main · issue rev 2026-11-02T00:00:00Z · 设计 无`);
     expect(parseHeader(`${line}\n\n发现……`)).toEqual(h);
     expect(parseHeader("Gate 结论 · review · PASS · HEAD abc · base main · issue rev x · 设计 无")).toBeNull();
+  });
+});
+
+describe("PR placement", () => {
+  const ref = (number: number): Ref => ({ repo, number });
+  const issue = (number: number, o: { parent?: Ref; subs?: { n: number; state: "OPEN" | "CLOSED" }[] } = {}): IssueData => ({
+    ref: ref(number),
+    nodeId: "I",
+    title: "t",
+    state: "OPEN",
+    stateReason: null,
+    body: "",
+    createdAt: "2026-11-01T00:00:00Z",
+    bodyRev: "2026-11-01T00:00:00Z",
+    url: "u",
+    parent: o.parent ?? null,
+    subIssues: (o.subs ?? []).map((s) => ({ ref: ref(s.n), state: s.state, title: "c" })),
+    comments: [],
+  });
+  const pr = (o: { base: string; head?: string; closing?: number[] }): PrData => ({
+    ref: ref(100),
+    title: "p",
+    state: "OPEN",
+    isDraft: false,
+    body: "",
+    url: "u",
+    headRefOid: "a".repeat(40),
+    headRefName: o.head ?? "work",
+    headRepo: repo,
+    baseRefName: o.base,
+    baseRefOid: "b".repeat(40),
+    mergeable: "MERGEABLE",
+    defaultBranch: "main",
+    checks: [],
+    closingIssues: (o.closing ?? []).map(ref),
+    files: [],
+    commits: [],
+    comments: [],
+  });
+  const msgs = (d: { message: string }[]) => d.map((x) => x.message);
+
+  test("a tree child merges into its tree's buffer branch, never the default branch", () => {
+    const child = issue(5, { parent: ref(1) });
+    expect(checkPlacement(pr({ base: "tree/acme-app-1" }), child)).toEqual([]);
+    expect(msgs(checkPlacement(pr({ base: "main", closing: [5] }), child))).toEqual([
+      "acme/app#5 属于 acme/app#1 的树：PR 的 base 必须是缓冲分支 tree/acme-app-1，现在是 main",
+    ]);
+  });
+
+  test("a standalone issue merges into the default branch and GitHub records exactly it", () => {
+    expect(checkPlacement(pr({ base: "main", closing: [7] }), issue(7))).toEqual([]);
+    expect(msgs(checkPlacement(pr({ base: "dev", closing: [] }), issue(7)))).toEqual([
+      "独立 issue 的 PR 合入默认分支 main，现在 base 是 dev",
+      "PR 关闭 0 个 issue（无），必须恰好一个",
+    ]);
+  });
+
+  test("a tree PR closes the root and every open child in its repo, and nothing else", () => {
+    const root = issue(1, { subs: [{ n: 5, state: "OPEN" }, { n: 6, state: "CLOSED" }, { n: 9, state: "OPEN" }] });
+    expect(checkTreePr(pr({ base: "main", head: "tree/acme-app-1", closing: [1, 5, 9] }), root)).toEqual([]);
+    expect(msgs(checkTreePr(pr({ base: "main", head: "tree/acme-app-1", closing: [1, 5, 6] }), root))).toEqual([
+      "tree PR 没有关闭 acme/app#9：正文写一行 `Closes acme/app#9`",
+      "tree PR 关闭了树外或别的 repo 的 acme/app#6",
+    ]);
+    expect(msgs(checkTreePr(pr({ base: "tree/acme-app-1", head: "work", closing: [] }), root))).toContain(
+      "tree PR 的 head 必须是缓冲分支 tree/acme-app-1，现在是 work",
+    );
   });
 });

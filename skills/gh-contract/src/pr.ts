@@ -1,33 +1,82 @@
 // PR contract: identity (closes exactly its issue), body template by issue kind, and the no-code checks.
 
-import { fileAt, type PrData } from "./github.ts";
+import { fileAt, type IssueData, type PrData } from "./github.ts";
 import type { IssueBody } from "./issue.ts";
 import { bullets, findSection, headingSlugs, links, nonEmpty, parseDoc } from "./markdown.ts";
 import { type Diagnostic, err, warn } from "./model.ts";
-import { parseRef, type Ref, refKey, sameRef } from "./ref.ts";
+import { parseRef, type Ref, refKey, sameRef, sameRepo, treeBranch } from "./ref.ts";
 
 const at = (line: number): string => `pr-body:${line}`;
 
-/** The issue named on the PR body's first line. */
-export function closesLine(body: string, pr: Ref): Ref | null {
+/** What the PR body's first line declares: the one issue it delivers, or the tree whose buffer branch it merges. */
+export type PrTarget = { readonly kind: "issue"; readonly issue: Ref } | { readonly kind: "tree"; readonly root: Ref };
+
+export function firstLine(body: string, pr: Ref): PrTarget | null {
   const first = body.split(/\r?\n/).find((l) => l.trim() !== "");
   if (first === undefined) return null;
-  const m = /^(?:Closes|Fixes|Resolves)\s+(\S+)\s*$/i.exec(first.trim());
-  return m === null ? null : parseRef(m[1] as string, pr.repo);
+  const closes = /^(?:Closes|Fixes|Resolves)\s+(\S+)\s*$/i.exec(first.trim());
+  if (closes !== null) {
+    const issue = parseRef(closes[1] as string, pr.repo);
+    return issue === null ? null : { kind: "issue", issue };
+  }
+  const tree = /^Tree\s+(\S+)\s*$/.exec(first.trim());
+  if (tree !== null) {
+    const root = parseRef(tree[1] as string, pr.repo);
+    return root === null ? null : { kind: "tree", root };
+  }
+  return null;
 }
 
-export function checkIdentity(pr: PrData, expected: Ref | null): { issue: Ref | null; diagnostics: Diagnostic[] } {
+/** The PR's declared target; `expected` pins the issue it must deliver. */
+export function checkIdentity(pr: PrData, expected: Ref | null): { target: PrTarget | null; diagnostics: Diagnostic[] } {
   const d: Diagnostic[] = [];
-  const named = closesLine(pr.body, pr.ref);
-  if (named === null) d.push(err(at(1), "PR 正文第一行必须是 `Closes owner/repo#N`（或 Fixes/Resolves）"));
+  const target = firstLine(pr.body, pr.ref);
+  if (target === null) d.push(err(at(1), "PR 正文第一行必须是 `Closes owner/repo#N`（交付一个 issue）或 `Tree owner/repo#N`（把树的缓冲分支合入默认分支）"));
+  if (expected !== null && target !== null && (target.kind !== "issue" || !sameRef(target.issue, expected))) {
+    d.push(err(at(1), `PR 第一行声明的不是 ${refKey(expected)}`));
+  }
+  if (pr.isDraft) d.push(err("pr", "PR 不允许是 draft"));
+  return { target, diagnostics: d };
+}
+
+/**
+ * Where a PR that delivers `issue` must merge. A child of a tree merges into the tree's buffer branch, where GitHub
+ * records no closing reference; a standalone issue merges into the default branch and GitHub must record exactly it.
+ */
+export function checkPlacement(pr: PrData, issue: IssueData): Diagnostic[] {
+  const d: Diagnostic[] = [];
+  if (issue.parent !== null) {
+    const buffer = treeBranch(issue.parent);
+    if (pr.baseRefName !== buffer) d.push(err("pr", `${refKey(issue.ref)} 属于 ${refKey(issue.parent)} 的树：PR 的 base 必须是缓冲分支 ${buffer}，现在是 ${pr.baseRefName}`));
+    return d;
+  }
+  if (pr.baseRefName !== pr.defaultBranch) d.push(err("pr", `独立 issue 的 PR 合入默认分支 ${pr.defaultBranch}，现在 base 是 ${pr.baseRefName}`));
   if (pr.closingIssues.length !== 1) {
     d.push(err("closingIssuesReferences", `PR 关闭 ${pr.closingIssues.length} 个 issue（${pr.closingIssues.map(refKey).join(", ") || "无"}），必须恰好一个`));
-  } else if (named !== null && !sameRef(pr.closingIssues[0] as Ref, named)) {
-    d.push(err("closingIssuesReferences", `GitHub 记录关闭 ${refKey(pr.closingIssues[0] as Ref)}，与正文第一行 ${refKey(named)} 不一致`));
+  } else if (!sameRef(pr.closingIssues[0] as Ref, issue.ref)) {
+    d.push(err("closingIssuesReferences", `GitHub 记录关闭 ${refKey(pr.closingIssues[0] as Ref)}，与正文第一行 ${refKey(issue.ref)} 不一致`));
   }
-  if (expected !== null && named !== null && !sameRef(named, expected)) d.push(err(at(1), `PR 关闭 ${refKey(named)}，目标是 ${refKey(expected)}`));
-  if (pr.isDraft) d.push(err("pr", "PR 不允许是 draft"));
-  return { issue: named, diagnostics: d };
+  return d;
+}
+
+/**
+ * A tree PR merges the buffer branch into the default branch of its repo and closes, by `Closes` lines, every tree
+ * issue that lives in that repo: the open children, and the root itself when the root lives there.
+ */
+export function checkTreePr(pr: PrData, root: IssueData): Diagnostic[] {
+  const d: Diagnostic[] = [];
+  const buffer = treeBranch(root.ref);
+  if (root.parent !== null) d.push(err(refKey(root.ref), `${refKey(root.ref)} 自身挂在 ${refKey(root.parent)} 下：嵌套树不经 tree PR 交付`));
+  if (root.subIssues.length === 0) d.push(err(refKey(root.ref), `${refKey(root.ref)} 没有 sub-issue，不是树根`));
+  if (pr.headRefName !== buffer) d.push(err("pr", `tree PR 的 head 必须是缓冲分支 ${buffer}，现在是 ${pr.headRefName}`));
+  if (pr.baseRefName !== pr.defaultBranch) d.push(err("pr", `tree PR 合入默认分支 ${pr.defaultBranch}，现在 base 是 ${pr.baseRefName}`));
+  const expected = [
+    ...(sameRepo(root.ref.repo, pr.ref.repo) ? [root.ref] : []),
+    ...root.subIssues.filter((s) => s.state === "OPEN" && sameRepo(s.ref.repo, pr.ref.repo)).map((s) => s.ref),
+  ];
+  for (const r of expected) if (!pr.closingIssues.some((c) => sameRef(c, r))) d.push(err("closingIssuesReferences", `tree PR 没有关闭 ${refKey(r)}：正文写一行 \`Closes ${refKey(r)}\``));
+  for (const c of pr.closingIssues) if (!expected.some((r) => sameRef(c, r))) d.push(err("closingIssuesReferences", `tree PR 关闭了树外或别的 repo 的 ${refKey(c)}`));
+  return d;
 }
 
 const STANDARD_SECTIONS = ["摘要", "实现说明"];
@@ -80,11 +129,17 @@ function resolvePath(fromFile: string, target: string): string {
 }
 
 /** Diff stays inside the issue's declared files; relative links and anchors in changed markdown resolve at head. */
-export async function checkNoCode(pr: PrData, issue: Extract<IssueBody, { kind: "no-code" }>): Promise<{ report: NoCodeReport; diagnostics: Diagnostic[] }> {
+/**
+ * `inTree`: the PR delivers a tree child, so its diff is the whole round's shared head and files outside this issue's
+ * scope belong to sibling children; they are listed for review instead of rejected.
+ */
+export async function checkNoCode(pr: PrData, issue: Extract<IssueBody, { kind: "no-code" }>, inTree: boolean): Promise<{ report: NoCodeReport; diagnostics: Diagnostic[] }> {
   const declared = new Set(issue.paths.map((p) => p.path));
   const outside = pr.files.filter((f) => !declared.has(f));
   const untouched = [...declared].filter((p) => !pr.files.includes(p));
-  const d: Diagnostic[] = outside.map((f) => err("diff", `${f} 不在 issue「范围」里；先把它加进 issue 范围再改`));
+  const d: Diagnostic[] = outside.map((f) =>
+    inTree ? warn("diff", `${f} 不在本 issue「范围」里：同一轮其他 child 的改动，review 核对归属`) : err("diff", `${f} 不在 issue「范围」里；先把它加进 issue 范围再改`),
+  );
   for (const u of untouched) d.push(warn("diff", `issue 范围里的 ${u} 没有改动`));
   const checks: LinkCheck[] = [];
   const repo = pr.headRepo ?? pr.ref.repo;

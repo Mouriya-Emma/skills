@@ -3,7 +3,7 @@
 import { getIssue, getPr, type IssueData, objectKind } from "./github.ts";
 import { type IssueBody, parseIssue, umbrellaIntegrationRef } from "./issue.ts";
 import { type Diagnostic, err } from "./model.ts";
-import { checkBody, checkIdentity, checkNoCode } from "./pr.ts";
+import { checkBody, checkIdentity, checkNoCode, checkPlacement, checkTreePr } from "./pr.ts";
 import { type Ref, refKey, sameRef } from "./ref.ts";
 
 export function printDiagnostics(d: readonly Diagnostic[]): number {
@@ -23,16 +23,17 @@ export function lintIssue(issue: IssueData): Diagnostic[] {
 export async function lintPr(ref: Ref): Promise<Diagnostic[]> {
   const pr = await getPr(ref);
   const id = checkIdentity(pr, null);
-  if (id.issue === null) return id.diagnostics;
-  const issue = await getIssue(id.issue);
+  if (id.target === null) return id.diagnostics;
+  if (id.target.kind === "tree") return [...id.diagnostics, ...checkTreePr(pr, await getIssue(id.target.root))];
+  const issue = await getIssue(id.target.issue);
   const parsed = parseIssue(issue.body, { repo: issue.ref.repo, hasParent: issue.parent !== null });
-  const d = [...id.diagnostics];
+  const d = [...id.diagnostics, ...checkPlacement(pr, issue)];
   if (parsed.value === null) {
     d.push(err(refKey(issue.ref), "关闭的 issue 正文不合契约，先修 issue（ghc lint 该 issue）"));
     return d;
   }
   d.push(...checkBody(pr, parsed.value));
-  if (parsed.value.kind === "no-code") d.push(...(await checkNoCode(pr, parsed.value)).diagnostics);
+  if (parsed.value.kind === "no-code") d.push(...(await checkNoCode(pr, parsed.value, issue.parent !== null)).diagnostics);
   return d;
 }
 

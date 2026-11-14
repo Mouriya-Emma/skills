@@ -1,18 +1,19 @@
 // `ghc ev check` and `ghc ev publish`: compute completeness for a target, render, post, set the commit status.
 
-import { getIssue, getPr, type IssueData, objectKind, type PrData, postComment, setStatus } from "../github.ts";
-import { checkoutAt } from "../git.ts";
+import { getIssue, getPr, type IssueData, type MergedPr, mergedPrsInto, objectKind, type PrData, postComment, setStatus } from "../github.ts";
+import { checkoutAt, defaultBranchRef } from "../git.ts";
 import { type IssueBody, parseIssue } from "../issue.ts";
 import { type Diagnostic, err } from "../model.ts";
-import { checkBody, checkIdentity, checkNoCode, type NoCodeReport } from "../pr.ts";
+import { checkBody, checkIdentity, checkNoCode, checkPlacement, firstLine, type NoCodeReport } from "../pr.ts";
 import { UsageError } from "../proc.ts";
-import { type Ref, type Repo, refKey } from "../ref.ts";
+import { type Ref, type Repo, refKey, repoKey, sameRef, treeBranch } from "../ref.ts";
 import { type CheckResult, type ChildMerge, checkEvidence, describe, type Mode } from "./check.ts";
 import { type EvidenceRecord, loadRecords, tail } from "./record.ts";
 import { type RecordDetail, renderPack, toPack } from "./render.ts";
 import { scanSecrets } from "./secrets.ts";
 
-export const STATUS_CONTEXT = "evidence/complete";
+/** Commit-status context carrying one issue's evidence verdict. Per issue, because a tree's child PRs share one head. */
+export const statusContext = (issue: Ref): string => `evidence/${refKey(issue)}`;
 const TAIL_LINES = 40;
 /** Characters of log tails one pack may carry: GitHub rejects comments over 65536 characters, and the table, commands
  * and images take the rest. Each stream of each record gets an equal share. */
@@ -33,27 +34,45 @@ function parsedBody(issue: IssueData): IssueBody {
 export async function resolve(ref: Ref): Promise<Target> {
   if ((await objectKind(ref)) === "PullRequest") {
     const pr = await getPr(ref);
-    const id = checkIdentity(pr, null);
-    if (id.issue === null) throw new UsageError(`${refKey(ref)} 正文第一行没有 Closes：先修正 PR 身份`);
-    const issue = await getIssue(id.issue);
+    const target = checkIdentity(pr, null).target;
+    if (target === null) throw new UsageError(`${refKey(ref)} 正文第一行没有 Closes：先修正 PR 身份`);
+    if (target.kind === "tree") throw new UsageError(`${refKey(ref)} 是 tree PR：证据在总体验收 issue 上发布`);
+    const issue = await getIssue(target.issue);
     return { kind: "pr", pr, issue, body: parsedBody(issue) };
   }
   const issue = await getIssue(ref);
   return { kind: "issue", issue, body: parsedBody(issue) };
 }
 
-/** Merge commits of an integration issue's composed children; open or unmerged children are problems. */
+/** The newest PR merged into the tree's buffer branch that delivers `child`, if any. */
+export async function bufferMerge(child: IssueData, cache: Map<string, MergedPr[]>): Promise<MergedPr | null> {
+  if (child.parent === null) return null;
+  const branch = treeBranch(child.parent);
+  const key = `${repoKey(child.ref.repo)} ${branch}`;
+  let prs = cache.get(key);
+  if (prs === undefined) {
+    prs = await mergedPrsInto(child.ref.repo, branch);
+    cache.set(key, prs);
+  }
+  const mine = prs.filter((p) => {
+    const t = firstLine(p.body, p.ref);
+    return t?.kind === "issue" && sameRef(t.issue, child.ref);
+  });
+  return mine.sort((a, b) => (a.mergedAt < b.mergedAt ? 1 : -1))[0] ?? null;
+}
+
+/** Merge commits of an integration issue's composed children in the tree's buffer branch; unmerged children are problems. */
 export async function integrationMerges(body: Extract<IssueBody, { kind: "integration" }>): Promise<{ merges: ChildMerge[]; problems: Diagnostic[] }> {
   const merges: ChildMerge[] = [];
   const problems: Diagnostic[] = [];
+  const cache = new Map<string, MergedPr[]>();
   for (const c of body.composed) {
-    const child = await getIssue(c);
-    const cb = child.closedBy;
-    if (child.state !== "CLOSED" || cb === null || !cb.merged || cb.mergeCommit === null || cb.mergedAt === null) {
-      problems.push(err(refKey(c), "组合对象尚未经合并的 PR 关闭：总体验收要在全部 child 合并后进行"));
+    const m = await bufferMerge(await getIssue(c), cache);
+    if (m === null) {
+      problems.push(err(refKey(c), "组合对象还没有合入缓冲分支的 PR：总体验收要在全部 child 合入缓冲分支后进行"));
       continue;
     }
-    merges.push({ child: refKey(c), repo: cb.pr.repo, commit: cb.mergeCommit, mergedAt: cb.mergedAt });
+    merges.push({ child: refKey(c), repo: m.ref.repo, commit: m.mergeCommit, mergedAt: m.mergedAt });
   }
   return { merges, problems };
 }
@@ -67,7 +86,10 @@ async function modeFor(t: Target, body: Runnable): Promise<{ mode: Mode; problem
     const { merges, problems } = await integrationMerges(body);
     return { mode: { kind: "integration", merges }, problems };
   }
-  return { mode: { kind: "local", checkout: await checkoutAt(process.cwd()) }, problems: [] };
+  const checkout = await checkoutAt(process.cwd());
+  const parent = t.issue.parent;
+  const baseRef = parent === null ? await defaultBranchRef(checkout.path) : `origin/${treeBranch(parent)}`;
+  return { mode: { kind: "local", checkout, baseRef }, problems: [] };
 }
 
 export async function runCheck(t: Target): Promise<{ check: CheckResult; problems: Diagnostic[] }> {
@@ -115,7 +137,7 @@ function renderNoCode(issue: IssueData, pr: PrData, report: NoCodeReport, d: rea
     "",
     "| 检查 | 结果 |",
     "|---|---|",
-    `| diff 文件 | ${report.outside.length === 0 ? `${pr.files.length} 个文件，全部在 issue 范围内` : `超出范围：${report.outside.join("、")}`} |`,
+    `| diff 文件 | ${report.outside.length === 0 ? `${pr.files.length} 个文件，全部在 issue 范围内` : `${issue.parent === null ? "超出范围" : "本 issue 范围外（同一轮其他 child）"}：${report.outside.join("、")}`} |`,
     `| 范围内未改动 | ${report.untouched.length === 0 ? "无" : report.untouched.join("、")} |`,
     `| 链接与锚点 | ${badLinks.length === 0 ? `${report.links.length} 个，全部可解析` : `${badLinks.length}/${report.links.length} 个无法解析`} |`,
     `| 预期结果对应 | ${resultDiags.length === 0 ? "每条结果都有要点" : resultDiags.map((x) => x.message).join("；")} |`,
@@ -131,13 +153,13 @@ export async function evPublish(ref: Ref): Promise<number> {
   if (t.body.kind === "no-code") {
     if (t.kind !== "pr") throw new UsageError("无代码变更 issue 的检查发在它的 PR 上：ghc ev publish <PR>");
     const identity = checkIdentity(t.pr, t.issue.ref);
-    const nc = await checkNoCode(t.pr, t.body);
-    const d = [...identity.diagnostics, ...checkBody(t.pr, t.body), ...nc.diagnostics];
+    const nc = await checkNoCode(t.pr, t.body, t.issue.parent !== null);
+    const d = [...identity.diagnostics, ...checkPlacement(t.pr, t.issue), ...checkBody(t.pr, t.body), ...nc.diagnostics];
     const ok = d.every((x) => x.severity !== "error");
     const url = await postComment(t.pr.ref, renderNoCode(t.issue, t.pr, nc.report, d, generatedAt));
     await setStatus(t.pr.ref.repo, t.pr.headRefOid, {
       state: ok ? "success" : "failure",
-      context: STATUS_CONTEXT,
+      context: statusContext(t.issue.ref),
       description: ok ? `无代码变更检查通过 @${t.pr.headRefOid.slice(0, 7)}` : `无代码变更检查未通过：${d.filter((x) => x.severity === "error").length} 项`,
       targetUrl: url,
     });
@@ -166,7 +188,7 @@ export async function evPublish(ref: Ref): Promise<number> {
   for (const s of statusTargets) {
     await setStatus(s.repo, s.sha, {
       state: complete ? "success" : "failure",
-      context: STATUS_CONTEXT,
+      context: statusContext(t.issue.ref),
       description: complete ? `${pack.linked}/${pack.total} 行齐全 @${s.sha.slice(0, 7)}` : `缺 ${missing.join(" ")}${problems.length > 0 ? "；组合对象未全部合并" : ""}`,
       targetUrl: url,
     });

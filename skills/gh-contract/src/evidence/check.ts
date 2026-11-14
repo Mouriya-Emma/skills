@@ -1,7 +1,7 @@
 // Evidence completeness: for every acceptance row and every step it owes, is there a record valid for the current inputs?
 
 import { type IssueData, mergeBaseRemote, type PrData } from "../github.ts";
-import { type Checkout, changedFiles, checkoutAt, defaultBranchRef, headOf, isAncestor, mergeBase } from "../git.ts";
+import { type Checkout, changedFiles, checkoutAt, headOf, isAncestor, mergeBase } from "../git.ts";
 import type { IssueBody, Row } from "../issue.ts";
 import { type Form, IMAGE_TYPES } from "../model.ts";
 import { parseRepo, type Repo, refKey, sameRepo } from "../ref.ts";
@@ -10,7 +10,8 @@ import type { EvidenceRecord } from "./record.ts";
 
 export type Mode =
   | { readonly kind: "pr"; readonly pr: PrData }
-  | { readonly kind: "local"; readonly checkout: Checkout }
+  /** `baseRef`: the remote branch the issue's PR will merge into (a tree child's buffer branch, else the default branch). */
+  | { readonly kind: "local"; readonly checkout: Checkout; readonly baseRef: string }
   | { readonly kind: "integration"; readonly merges: readonly ChildMerge[] };
 
 export type ChildMerge = { readonly child: string; readonly repo: Repo; readonly commit: string; readonly mergedAt: string };
@@ -53,7 +54,7 @@ async function anchorsFor(mode: Mode): Promise<Anchors> {
       const sha = await headOf(mode.checkout.path);
       return {
         head: { repo: mode.checkout.repo, sha },
-        base: await mergeBase(mode.checkout.path, sha, await defaultBranchRef(mode.checkout.path)),
+        base: await mergeBase(mode.checkout.path, sha, mode.baseRef),
         local: mode.checkout,
       };
     }

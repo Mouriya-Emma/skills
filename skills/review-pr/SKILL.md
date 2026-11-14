@@ -22,7 +22,7 @@ Gate 1–5 决定 open PR 是否可批准，按序检查，首个失败即停。
 
 ### 1. 目标身份
 
-`ghc lint <PR>` 的身份检查通过：恰好关闭一个真实 issue，且与正文第一行一致。再确认 repo、base branch 是预期目标，diff 不是不相关问题的拼盘。无 PR 时，no-PR 路径要有 issue/PR 历史中的显式理由。身份或关闭条件不成立就说明缺失项，不进入代码 review。
+`ghc lint <PR>` 的身份检查通过：正文第一行指名的 issue 真实存在，PR 落在它该去的分支——树内 child 的 PR 合入树的缓冲分支（GitHub 不为它登记关闭关系），独立 issue 的 PR 合入默认分支且 GitHub 恰好登记关闭该 issue；tree PR 把缓冲分支合入默认分支并关闭该 repo 里全部未关闭的树内 issue。再确认 repo 是预期目标，diff 不是不相关问题的拼盘。树内 child 的 PR 与同一轮其他 child 的 PR 共用一个 head，diff 含其他 child 的改动，这不是拼盘：只审本 issue 负责的部分。无 PR 时，no-PR 路径要有 issue/PR 历史中的显式理由。身份或关闭条件不成立就说明缺失项，不进入代码 review。
 
 ### 2. 路由
 
@@ -34,7 +34,7 @@ Gate 1–5 决定 open PR 是否可批准，按序检查，首个失败即停。
 
 ### 4. 证据实质
 
-当前 HEAD 上 `evidence/complete` 状态为 success（状态挂在 sha 上，HEAD 一变就不存在；`ghc fetch` 的 payload 里可见）；否则本 gate 直接失败，要求作者补采后重新发布。齐全之后读该状态链接的证据包判断实质：读数是否真的观察到 issue 写的结果，负例是否真的走了拒绝路径，截图是否看得出所证结果，`[保持]` 行是否经过被改代码路径。CI 或本地 CI-parity 状态如实记载，但不是业务证明。证据有没有意义取决于验收行本身：验收行设计得观察不到结果时，按「结果优先」作为 issue 契约问题处理。
+当前 HEAD 上本 issue 的 `evidence/<owner>/<repo>#<N>` 状态为 success（状态挂在 sha 上，HEAD 一变就不存在；同一 head 上其他 child 的证据状态不算；`ghc fetch` 的 payload 里可见）；否则本 gate 直接失败，要求作者补采后重新发布。齐全之后读该状态链接的证据包判断实质。证据是这张验收表唯一的一次执行，reviewer 不重跑整张表；怀疑某条证据时可以跑针对该疑点的探针，探针结果不替代作者证据。判断：读数是否真的观察到 issue 写的结果，负例是否真的走了拒绝路径，截图是否看得出所证结果，`[保持]` 行是否经过被改代码路径。CI 或本地 CI-parity 状态如实记载，但不是业务证明。证据有没有意义取决于验收行本身：验收行设计得观察不到结果时，按「结果优先」作为 issue 契约问题处理。
 
 **无代码变更 PR 没有运行证据**，改为核对要点实质：每个要点概括思路或语义变化，逐文件逐行复述 diff、贴改前改后原文的不算；要点与当前 head 的 diff 一致，没有虚报，也没有漏掉实质语义变化（新增或删除的规则、收窄或放宽的边界）；「调整思路」写清原有问题、依据与取舍，而非复读「做了什么」。空泛要点（「优化了措辞」「完善了文档」）视同缺失。
 
@@ -45,7 +45,8 @@ Gate 1–5 决定 open PR 是否可批准，按序检查，首个失败即停。
 ### 6. 关闭资格
 
 - 原子 issue：实现 PR 已合并，或 no-code 理由已明确发布。
-- parent：`ghc merge-ready <树根> --tree` 通过，即实现 child 全部关闭，总体验收 issue 的证据包齐全且采于全部 child 合并之后；无合并 PR 的 child 有可引用的 no-code/duplicate/invalid/out-of-scope/already-satisfied/moot 理由。
+- 树内 child：它的 PR 已合入缓冲分支，且 tree PR 已合入默认分支（GitHub 在 tree PR 合并时关闭它）。
+- 树根：`ghc merge-ready <树根> --tree` 通过后 tree PR 已合并，即剩余 child 全部合入缓冲分支，总体验收 issue 的证据包齐全且采于缓冲分支当前提交；无 PR 的 child 有可引用的 no-code/duplicate/invalid/out-of-scope/already-satisfied/moot 理由。
 - blocked：外部 blocker 具体且已发布，写明解除条件。
 - invalid/duplicate/moot：理由持久、带链接/引用。
 
@@ -53,7 +54,7 @@ Gate 1–5 决定 open PR 是否可批准，按序检查，首个失败即停。
 
 ## OMP 执行层
 
-使用当前 `task` 工具的 `task:free1` 子代理执行只读代码审查，不使用禁用的 bundled `reviewer` 或省略 agent 字段后落到默认 `task`。不依赖旧插件 slash command，也不因磁盘上有插件文件就声称它在 OMP 可调用。
+用 `task` 工具派只读子代理执行代码审查：按本机当前可用的 agent 定义选择能读代码、跑只读命令、且未被禁用的那个，显式写明 agent，不省略 agent 字段落到默认值。不依赖旧插件 slash command，也不因磁盘上有插件文件就声称它在 OMP 可调用。agent 名不写进 PR comment。
 
 交给执行者的任务应包含：
 
@@ -65,7 +66,7 @@ Gate 1–5 决定 open PR 是否可批准，按序检查，首个失败即停。
 
 同一 diff 同一目的不重复分派。按实质独立范围拆任务，而不是固定凑多个角色。Main 核实发现并裁决，不能把子代理的结论直接当成已通过全部 gate。
 
-`task:free1` 实际不可用时报告 Gate 5 blocker，不偷偷安装插件或换用其他 agent；源码仍只从本地 checkout 读，GitHub 元数据仍走完整本地 payload。
+没有满足要求的可用 agent 时报告 Gate 5 blocker，不偷偷安装插件；源码仍只从本地 checkout 读，GitHub 元数据仍走完整本地 payload。
 
 ## 消化报告
 
@@ -88,4 +89,4 @@ Gate 1–5 决定 open PR 是否可批准，按序检查，首个失败即停。
 | Blocked | 具体外部依赖或不可用执行能力阻塞，发布解除条件。 |
 | Do not close | 证明或 child 完成度不足。 |
 
-输出指出首个失败 gate、依据链接/文件锚点、已确认与未确认部分及下一步责任人；发到 PR thread 的结论 comment 第一行是 `ghc gate header <PR> --kind review --result <PASS|FAIL@GateN>` 的输出，原样放在开头，让之后的人能判断它是否仍有效。已合并后的缺陷另开 issue，不回写旧 PR。
+输出指出首个失败 gate、依据链接/文件锚点、已确认与未确认部分及下一步责任人；发到 PR thread 的结论 comment 第一行是 `ghc gate header <PR> --result <PASS|FAIL@GateN>` 的输出，原样放在开头，让之后的人能判断它是否仍有效。已合并后的缺陷另开 issue，不回写旧 PR。
