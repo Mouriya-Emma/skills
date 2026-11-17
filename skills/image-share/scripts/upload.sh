@@ -4,7 +4,7 @@
 #
 # Auth is auto-resolved:
 #   1. $ZERO721_PASSWORD env var (highest priority, for explicit overrides)
-#   2. the vctcn-edge OpenBao runtime path (the 0721 Stack's workload repo):
+#   2. the vctcn-edge OpenBao ops path (the 0721 Stack's workload repo):
 #      VCTCN_EDGE_ZERO721_RUNTIME_PASSWORD, the retained admin's login password,
 #      read by bao-exec from kv/mouriya-s-lab/vctcn-edge/ops
 #
