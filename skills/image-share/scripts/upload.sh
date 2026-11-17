@@ -36,7 +36,8 @@ Environment overrides:
 Default auth comes from the vctcn-edge OpenBao ops path
 (VCTCN_EDGE_ZERO721_RUNTIME_PASSWORD) through bao-exec, using the
 workstation OpenBao identity (BAO_ADDR, BAO_EXEC_AUTH and the approle
-files). The value never reaches argv, stdout or stderr.
+files). The password and the token reach their consumers only through a
+process environment or stdin: they never appear in argv, stdout or stderr.
 
 Stdout (success): https://img.237575.xyz/media/<key>
 Exit codes: 0 ok, 1 runtime error, 2 usage error.
@@ -96,10 +97,13 @@ login() {
   local pw=$1
   local resp http body_file
   body_file=$(response_body_path 0721-login)
-  resp=$(curl -sS -o "$body_file" -w '%{http_code}' \
+  # The password reaches jq as an environment value and curl's request body on
+  # stdin: neither process ever sees it in argv.
+  resp=$( ZERO721_PW=$pw jq -nc --arg n "$EMAIL" '{name:$n,password_raw: env.ZERO721_PW}' \
+    | curl -sS -o "$body_file" -w '%{http_code}' \
     -X POST "$BASE_URL/api/auth/login" \
     -H 'Content-Type: application/json' \
-    --data-raw "$(jq -nc --arg n "$EMAIL" --arg p "$pw" '{name:$n,password_raw:$p}')" \
+    --data-binary @- \
     -m 15) || { rm -f "$body_file"; return 1; }
   http=$resp
   if [[ "$http" != 2?? ]]; then
@@ -118,11 +122,13 @@ upload() {
   name=$(basename "$path")
   local resp http body_file
   body_file=$(response_body_path 0721-upload)
-  resp=$(curl -sS -o "$body_file" -w '%{http_code}' \
-    -X PUT "$BASE_URL/api/media/insert?name=$(printf %s "$name" | jq -sRr @uri)" \
-    -H "Authorization: Bearer $token" \
-    -F "file=@${path}" \
-    -m 120) || { rm -f "$body_file"; return 1; }
+  # The bearer token travels to curl as a header on stdin, not in argv.
+  resp=$(printf 'Authorization: Bearer %s\n' "$token" \
+    | curl -sS -o "$body_file" -w '%{http_code}' \
+      -X PUT "$BASE_URL/api/media/insert?name=$(printf %s "$name" | jq -sRr @uri)" \
+      -H @- \
+      -F "file=@${path}" \
+      -m 120) || { rm -f "$body_file"; return 1; }
   http=$resp
   if [[ "$http" != 2?? ]]; then
     local errbody

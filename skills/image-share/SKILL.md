@@ -67,4 +67,9 @@ Transcoding, deduplication, and key format are server behavior, not promises enf
 
 ## Service boundary
 
-This skill uploads evidence; it does not administer 0721. The 0721 deployment is the Komodo Stack `zero721` declared in `mouriya-s-lab/vctcn-edge` (`komodo/syncs/zero721.toml`, `stacks/zero721/`), running on Server `vctcn-app1`; its Stack reads these values through `bao-exec` (`compose_cmd_wrapper`), so change or debug it through `km`. The `img.237575.xyz` proxy host is NPM runtime state on CT 171. VM, network and ingress changes go through `iac-projects`.
+This skill uploads evidence; it does not administer 0721. The 0721 deployment is the Komodo Stack `zero721` declared in `mouriya-s-lab/vctcn-edge` (`komodo/syncs/zero721.toml`, `stacks/zero721/`), running on Server `vctcn-app1`; change or debug it through `km`. Two different value groups feed it:
+
+- This skill's login password is `VCTCN_EDGE_ZERO721_RUNTIME_PASSWORD` in `kv/mouriya-s-lab/vctcn-edge/ops`, read by the helper through `bao-exec`; the `zero721` Stack does not interpolate it.
+- The `zero721` Stack's own values (`VCTCN_EDGE_ZERO721_ADMIN_*`, `VCTCN_EDGE_ZERO721_JWT_SECRET`) are fields of `kv/mouriya-s-lab/vctcn-edge/runtime`, which the Stack's `compose_cmd_wrapper` reads at deploy time.
+
+The `img.237575.xyz` proxy host is NPM runtime state on CT 171. VM, network and ingress changes go through `iac-projects`.
