@@ -137,7 +137,7 @@ function renderNoCode(issue: IssueData, pr: PrData, report: NoCodeReport, d: rea
     "",
     "| 检查 | 结果 |",
     "|---|---|",
-    `| diff 文件 | ${report.outside.length === 0 ? `${pr.files.length} 个文件，全部在 issue 范围内` : `${issue.parent === null ? "超出范围" : "本 issue 范围外（同一轮其他 child）"}：${report.outside.join("、")}`} |`,
+    `| diff 文件 | ${report.outside.length === 0 ? `${pr.files.length} 个文件，全部在 issue 范围内` : `超出范围：${report.outside.join("、")}`} |`,
     `| 范围内未改动 | ${report.untouched.length === 0 ? "无" : report.untouched.join("、")} |`,
     `| 链接与锚点 | ${badLinks.length === 0 ? `${report.links.length} 个，全部可解析` : `${badLinks.length}/${report.links.length} 个无法解析`} |`,
     `| 预期结果对应 | ${resultDiags.length === 0 ? "每条结果都有要点" : resultDiags.map((x) => x.message).join("；")} |`,
@@ -153,7 +153,7 @@ export async function evPublish(ref: Ref): Promise<number> {
   if (t.body.kind === "no-code") {
     if (t.kind !== "pr") throw new UsageError("无代码变更 issue 的检查发在它的 PR 上：ghc ev publish <PR>");
     const identity = checkIdentity(t.pr, t.issue.ref);
-    const nc = await checkNoCode(t.pr, t.body, t.issue.parent !== null);
+    const nc = await checkNoCode(t.pr, t.body);
     const d = [...identity.diagnostics, ...checkPlacement(t.pr, t.issue), ...checkBody(t.pr, t.body), ...nc.diagnostics];
     const ok = d.every((x) => x.severity !== "error");
     const url = await postComment(t.pr.ref, renderNoCode(t.issue, t.pr, nc.report, d, generatedAt));

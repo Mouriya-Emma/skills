@@ -30,7 +30,7 @@
 
 **## 依赖图** — 回答「谁需要谁的已交付行为」。图必须使用 mermaid，只画语义依赖（Depends/Blocks）：权威契约的消费者 Depends on 它实际需要的 owner child 后置条件；共享结构由 owner 按树根契约定义。边只指向已交付行为的后置条件，不指向某个 issue 将产出的事实或结论。
 
-不写编排：实现顺序、并行与串行、分支与 rebase 次序、由谁实现都不进 umbrella。交付时整棵树的 child 在同一轮一起实现、在同一个 head 上一起测试（`skill://delivering-issues`），同改一个文件不再需要 issue 排链。失败模式：把共享结构的定义权交给「谁先合入」——契约由合并顺序而非树根裁决决定。
+不写编排：实现顺序、并行与串行、分支与 rebase 次序、由谁实现都不进 umbrella。交付方按这张图安排并行：依赖的后置条件都已交付的 child 同时开工，各有自己的分支与 PR。所以边要画全，也不多画：漏一条边，两个 child 会同时改同一处；多一条边，本可并行的 child 被排成串行。失败模式：把共享结构的定义权交给「谁先合入」——契约由合并顺序而非树根裁决决定。
 
 **## Coordinator 启动**（retroactive 树根不写）— 回答「操作员从哪里启动这棵树的交付」。写：本区块只有一行 omp-roundtable coordinator 徽章链接，写法按 [omp-roundtable README「Starting a coordinator」](https://github.com/oh-my-omp/omp-roundtable#starting-a-coordinator)：链接包裹徽章图片，不写裸 URL——GitHub 会滤掉 issue 正文里的内联 `<svg>`，裸链接只显示一长串本地地址。链接指向树根自身编号；`cwd` 是树根 issue 所在 repo 在操作员本机 checkout 的绝对路径，按 URL 查询值编码，写作期按 SKILL.md「开树前：解析操作员方向」的指称落位查得并核实目录存在，不编路径。audit 充当树根时同样作为其 body 末尾区块。
 

@@ -1,6 +1,6 @@
 ---
 name: writing-pr
-description: 起草或修复 open PR：closing link、实现说明、重试评论；实现完成后用 ghc 逐行采集证据并发布证据包，证据是对真实入口的单条命令或真实会话截图，不用脚本。无代码变更 PR 用要点模板。
+description: 起草或修复 open PR：closing link、实现说明、重试评论；开工前定证据计划，实现完成后用 ghc 逐行采集证据并发布证据包，证据是对真实入口的单条命令或真实会话截图，不用脚本。无代码变更 PR 用要点模板。
 ---
 
 # writing-pr
@@ -12,7 +12,7 @@ PR 承载实现说明与证据：正文说明 diff 怎样兑现 issue 的原因�
 ## 身份
 
 - 一个 PR 交付一个 issue，正文第一行 `Closes #<N>` 或 `Closes <owner>/<repo>#<N>`。
-- base 由 issue 的位置决定，`ghc lint <PR>` 检查：独立 issue 合入默认分支；树内 child 合入缓冲分支 `tree/<树根 owner>-<树根 repo>-<树根编号>`，到 tree PR 合并时才关闭。同一轮的 child 各开一个 PR、指向同一个 head，实现说明只写本 issue 负责的部分。
+- base 由 issue 的位置决定，`ghc lint <PR>` 检查：独立 issue 合入默认分支；树内 child 合入缓冲分支 `tree/<树根 owner>-<树根 repo>-<树根编号>`，到 tree PR 合并时才关闭。每个 issue 有自己的分支和 HEAD，PR 的 diff 只含本 issue 的改动。
 - 标题和正文用中文；代码、路径、命令与工具输出原样。conventional-commit 前缀仅在 repo 已有惯例时用。
 - 只修改 open PR。重试续用原 branch 和 PR：同步更新实现说明，在新 HEAD 上重新采集并发布证据包，再发重试评论。
 
@@ -30,10 +30,10 @@ PR 承载实现说明与证据：正文说明 diff 怎样兑现 issue 的原因�
 
 ## 证据（标准 PR）
 
-验收行只写了观察什么、期望什么。怎样观察由你在实现完成后决定：只有这时才知道结果从哪个入口、用哪条命令能看到。
+验收行只写了观察什么、期望什么。怎样观察分两步定：开工前定从哪里观察，实现完成后定用哪条命令。
 
-1. 实现并提交后跑 `ghc ev plan <issue>`：列出每行的观察对象、环境、期望，以及按面和测试形态要交的步骤（如 `iac` 的 preview → apply → readback）。
-2. 每个步骤采集一条记录：
+1. 开工前跑 `ghc ev plan <issue>`：列出每行的观察对象、环境、期望，以及按面和测试形态要交的步骤（如 `iac` 的 preview → apply → readback）。逐行定下从哪个真实入口观察、在哪个环境、需要哪些前置（部署目标、依赖服务、数据、凭据），实现要把这个入口交出来。要在改动前采集的步骤（如 `gui` 的改动前截图）这时就采。某行按原文观察不到，现在就按下文「观察不到时」提出。
+2. 实现并提交后，每个步骤采集一条记录：
    - 命令行能读到的结果：`ghc ev run <issue> --row N [--step S] -- <命令>`。命令是对真实入口的一次直接调用——产品 CLI 的一条子命令、一次 HTTP 请求、控制面或数据库的一次读回——输出里能直接读到 Expect。一条命令同时证明多行时用 `--row N,M`。
    - 界面上的结果：按 `skill://ego-browser` 以真实用户身份操作到该状态并截图，再 `ghc ev attach <issue> --row N --step S <图片>`。改动前截图在 base 提交的干净检出上采集。
 3. `ghc ev check <issue>` 退出码 0 才开 PR；它列出的缺失、过期、无效行就是待办。工作区有未提交改动时 `ghc` 拒绝采集，HEAD 变了就在新 HEAD 上重采。
@@ -45,7 +45,7 @@ PR 承载实现说明与证据：正文说明 diff 怎样兑现 issue 的原因�
 - 一条记录只做观察：对真实入口的调用，以及对其输出的过滤。`ghc ev plan` 没列的准备动作（造数据、起依赖、重建）在记录之外做，不和观察串成一条命令；不同的行也不串成一条链。
 - 输出不手写、不挪用别次的；PR 正文不贴日志或截图。
 
-**观察不到时。** 某行按原文观察不到（入口不存在、Expect 与实现后的事实不符）：属于本 PR 的问题先修；确属验收行本身的问题，不改 issue、不改写 Expect 迁就实现，在 PR thread 写「验收行 #N：<观察不到的原因与证据>；建议改为 <…>」，交派工方裁决，该行在证据包里如实缺失，其余行照常采集。外部 blocker 用 `skill://writing-issue` 发布并写解除条件。缺凭据先按 `credentials-from-owning-source` 规则查拥有方的 secret store 与本机既有来源。
+**观察不到时。** 某行按原文观察不到（入口不存在、Expect 与实现后的事实不符）：属于本 PR 的问题先修；确属验收行本身的问题，不改 issue、不改写 Expect 迁就实现，在 PR thread（PR 还没开时在 issue 上）写「验收行 #N：<观察不到的原因与证据>；建议改为 <…>」，交派工方裁决，该行在证据包里如实缺失，其余行照常采集。外部 blocker 用 `skill://writing-issue` 发布并写解除条件。缺凭据先按 `credentials-from-owning-source` 规则查拥有方的 secret store 与本机既有来源。
 
 这次采集是验收表唯一的一次执行：review 判断证据而不重跑，合并后也不重跑。在哪里采集按 issue 的「测试形态」，不升级；运行强度按 `~/.claude/rules/runtime-verification-required.rule.md`。
 

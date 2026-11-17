@@ -19,13 +19,13 @@ description: 审核 open PR、重试证据和 issue 关闭条件，裁决 reques
 
 Gate 1–5 决定 open PR 能否批准，按序检查，首个失败即停。Gate 6 单独决定 issue 能否关闭。
 
-**1. 身份。** `ghc lint <PR>` 的身份检查通过：第一行指名的 issue 真实存在，PR 落在该去的分支（独立 issue 合入默认分支；树内 child 合入缓冲分支；tree PR 把缓冲分支合入默认分支并关闭该 repo 全部未关闭的树内 issue）。再确认 diff 不是不相关问题的拼盘。树内 child 的 PR 与同一轮其他 child 共用 head，diff 含其他 child 的改动不算拼盘：只审本 issue 负责的部分。
+**1. 身份。** `ghc lint <PR>` 的身份检查通过：第一行指名的 issue 真实存在，PR 落在该去的分支（独立 issue 合入默认分支；树内 child 合入缓冲分支；tree PR 把缓冲分支合入默认分支并关闭该 repo 全部未关闭的树内 issue）。再确认 diff 不是不相关问题的拼盘：它只含本 issue 的改动。
 
 **2. 路由。** 问题、范围和 follow-up 在 issue，实现说明和证据在 PR。证据没有经 `ghc ev publish` 发成证据包、而是写在正文或别处时，要求作者用 `ghc` 重新采集发布，reviewer 不代为搬运。
 
 **3. 正文。** `ghc lint <PR>` 通过。再核对：实现说明回答了 diff 为何消除 issue 写明的原因，只贴标签或复述 diff 不算；比较过多个方案的写出了被否方案及理由；改变结果或跨单元契约的偏离没有在 PR 内自行放行。
 
-**4. 证据。** 当前 HEAD 上本 issue 的 `evidence/<owner>/<repo>#<N>` 状态为 success，否则直接失败，要求作者补采后重新发布（同一 head 上其他 child 的状态不算）。齐全之后读证据包判断实质：
+**4. 证据。** 当前 HEAD 上本 issue 的 `evidence/<owner>/<repo>#<N>` 状态为 success，否则直接失败，要求作者补采后重新发布。齐全之后读证据包判断实质：
 
 - 记录里的命令是不是对真实入口的一次直接调用。脚本文件、driver、测试套件、把准备动作或多行串成一条的链，都不是证据，该行按无效处理。
 - 输出或截图里能不能直接读到该行的 Expect；负例是否真的走了拒绝路径；`[保持]` 行是否经过被改的代码路径。
@@ -48,14 +48,14 @@ Gate 1–5 决定 open PR 能否批准，按序检查，首个失败即停。Gat
 
 ## 执行代码审查
 
-Gate 5 用 `task` 工具派只读子代理：按本机当前可用的 agent 定义选能读代码、跑只读命令的那个，显式写明 agent。同一 diff 同一目的不重复分派。任务里给出：
+Gate 5 的 diff 审查可以派一名只读子代理做；你自己就是被派来只做这次 review 的只读 agent 时亲自做，不再下派。派出时按本机当前可用的 agent 定义选能读代码、跑只读命令的那个，显式写明 agent；同一 diff 同一目的不重复分派。任务里给出：
 
 - 本地 checkout 与真实 base/head commit；`ghc fetch` 落盘的 payload 位置。
 - issue 的原因、责任定位与范围边界，作者的实现说明与证据包，repo-local 规则，以及要特别核对的风险。
 - 只读边界：不改代码，不补证据，不创建或修改 GitHub 对象，不运行会改变环境的验证。
 - 输出：每个发现带 `file:line`、可观察后果和依据；区分已证实缺陷、疑点、范围外和未覆盖范围；没有问题时如实报告检查范围。
 
-没有满足要求的 agent 时报告 Gate 5 blocker。子代理只产出发现，裁决由你作出：对照本地 diff、周边代码和 repo 既有决策逐条核实，严重级别不是证据；存活的发现转成带 `file:line`、可观察影响和具体要求的 PR-thread 评论，不成立的丢弃或写明反证，范围外的另开 issue。agent 名不写进 PR comment。
+要下派而没有满足要求的 agent 时报告 Gate 5 blocker。子代理只产出发现，裁决由你作出：对照本地 diff、周边代码和 repo 既有决策逐条核实，严重级别不是证据；存活的发现转成带 `file:line`、可观察影响和具体要求的 PR-thread 评论，不成立的丢弃或写明反证，范围外的另开 issue。agent 名不写进 PR comment。
 
 ## 裁决
 

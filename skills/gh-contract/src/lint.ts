@@ -33,7 +33,7 @@ export async function lintPr(ref: Ref): Promise<Diagnostic[]> {
     return d;
   }
   d.push(...checkBody(pr, parsed.value));
-  if (parsed.value.kind === "no-code") d.push(...(await checkNoCode(pr, parsed.value, issue.parent !== null)).diagnostics);
+  if (parsed.value.kind === "no-code") d.push(...(await checkNoCode(pr, parsed.value)).diagnostics);
   return d;
 }
 

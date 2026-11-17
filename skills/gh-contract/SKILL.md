@@ -19,14 +19,14 @@ description: ghc CLI：程序化读取与检查 GitHub issue/PR 内容——完�
 | `ghc lint <issue>` | 发布或修改 issue 之后 |
 | `ghc lint <umbrella> --tree` | 发布或修改 issue 树之后 |
 | `ghc lint <PR>` | 创建 PR、改 PR 正文之后：身份与分支（树内 child 合入缓冲分支；独立 issue 合入默认分支且恰好关闭它；tree PR 从缓冲分支合入默认分支并关闭该 repo 全部未关闭的树内 issue）、正文模板、无代码变更的范围与链接 |
-| `ghc ev plan <issue>` | 实现提交后、采集前：列出每个验收行的观察对象、环境、期望，以及要采集的步骤 |
+| `ghc ev plan <issue>` | 开工前定证据计划时，以及采集前：列出每个验收行的观察对象、环境、期望，以及要采集的步骤 |
 | `ghc ev run <issue> --row N[,M] [--step S] [--artifacts DIR] [--checkout PATH]... [--timeout SEC] -- <command>` | 采集一条记录：执行一条对真实入口的命令并记录，输出照常打印 |
 | `ghc ev attach <issue> --row N[,M] [--step S] [--checkout PATH]... <image|dir>...` | 把真实会话里截的图登记进证据 |
 | `ghc ev check <issue|PR>` | 开 PR 前与发布前：逐行报告 linked / stale / invalid / missing；在本地检出上检查树内 child 时，改动前截图以 `origin/<缓冲分支>` 为 base |
-| `ghc ev publish <PR|总体验收 issue>` | 发布证据包 comment，并在 HEAD 写本 issue 的 `evidence/<owner>/<repo>#<N>` 状态（同一 head 上的多个 child PR 各有各的状态） |
+| `ghc ev publish <PR|总体验收 issue>` | 发布证据包 comment，并在 HEAD 写本 issue 的 `evidence/<owner>/<repo>#<N>` 状态 |
 | `ghc gate header <PR> --result PASS|FAIL@GateN [--design REF]` | review 结论 comment 的第一行，原样放在 comment 开头 |
 | `ghc gate list <PR>` | 判断已有 review 结论是否仍对当前输入有效 |
-| `ghc merge-ready <PR> --issue <ref> --head <sha>` | 合并交付一个 issue 的 PR 之前：PR open 可合并、HEAD 未变、落在该去的分支、本 issue 的证据状态 success、有对当前输入有效的 review PASS；同一 head 上其他 issue 的证据状态不计入 |
+| `ghc merge-ready <PR> --issue <ref> --head <sha>` | 合并交付一个 issue 的 PR 之前：PR open 可合并、HEAD 未变、落在该去的分支、本 issue 的证据状态 success、有对当前输入有效的 review PASS |
 | `ghc merge-ready <树根> --tree` | 合并 tree PR 之前：剩余 child 都已合入缓冲分支、总体验收证据包齐全且采于缓冲分支当前提交、每个 repo 恰有一个合规的 tree PR；树根之外 repo 的 tree PR 先合并 |
 
 树的缓冲分支名固定为 `tree/<树根 owner>-<树根 repo>-<树根编号>`，`ghc` 据此检查树内 PR 的 base 与 tree PR 的 head。

@@ -18,7 +18,7 @@ export async function prMergeReady(ref: Ref, o: { readonly issue: Ref; readonly 
   if (pr.headRefOid !== o.head) d.push(err("pr", `HEAD 是 ${pr.headRefOid}，授权的是 ${o.head}`));
   d.push(...checkIdentity(pr, o.issue).diagnostics, ...checkPlacement(pr, issue));
   const own = statusContext(o.issue);
-  // Sibling child PRs share this head, so other issues' evidence statuses sit on it too and are not this PR's checks.
+  // Evidence statuses are keyed by issue; this PR's own one is read separately below.
   for (const c of pr.checks) {
     if (c.name.startsWith("evidence/")) continue;
     if (c.state !== "success") d.push(err("checks", `${c.name}：${c.state}`));

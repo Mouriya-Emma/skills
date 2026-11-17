@@ -129,17 +129,11 @@ function resolvePath(fromFile: string, target: string): string {
 }
 
 /** Diff stays inside the issue's declared files; relative links and anchors in changed markdown resolve at head. */
-/**
- * `inTree`: the PR delivers a tree child, so its diff is the whole round's shared head and files outside this issue's
- * scope belong to sibling children; they are listed for review instead of rejected.
- */
-export async function checkNoCode(pr: PrData, issue: Extract<IssueBody, { kind: "no-code" }>, inTree: boolean): Promise<{ report: NoCodeReport; diagnostics: Diagnostic[] }> {
+export async function checkNoCode(pr: PrData, issue: Extract<IssueBody, { kind: "no-code" }>): Promise<{ report: NoCodeReport; diagnostics: Diagnostic[] }> {
   const declared = new Set(issue.paths.map((p) => p.path));
   const outside = pr.files.filter((f) => !declared.has(f));
   const untouched = [...declared].filter((p) => !pr.files.includes(p));
-  const d: Diagnostic[] = outside.map((f) =>
-    inTree ? warn("diff", `${f} 不在本 issue「范围」里：同一轮其他 child 的改动，review 核对归属`) : err("diff", `${f} 不在 issue「范围」里；先把它加进 issue 范围再改`),
-  );
+  const d: Diagnostic[] = outside.map((f) => err("diff", `${f} 不在 issue「范围」里；先把它加进 issue 范围再改`));
   for (const u of untouched) d.push(warn("diff", `issue 范围里的 ${u} 没有改动`));
   const checks: LinkCheck[] = [];
   const repo = pr.headRepo ?? pr.ref.repo;
