@@ -9,10 +9,13 @@ if [ -z "${KC_ADMIN_USERNAME:-}" ] || [ -z "${KC_ADMIN_PASSWORD:-}" ]; then
   return 1 2>/dev/null || exit 1
 fi
 
-KC_TOKEN=$(curl -fsS -X POST "$KC_HOST/realms/master/protocol/openid-connect/token" \
+# The password reaches curl only on stdin (`--data-urlencode password@-`);
+# `printf` is a shell builtin, so the value never appears in any process argv
+# (homelab-tf#641 decision §8, §12).
+KC_TOKEN=$(printf %s "$KC_ADMIN_PASSWORD" | curl -fsS -X POST "$KC_HOST/realms/master/protocol/openid-connect/token" \
   -d "client_id=admin-cli" \
-  -d "username=$KC_ADMIN_USERNAME" \
-  -d "password=$KC_ADMIN_PASSWORD" \
+  --data-urlencode "username=$KC_ADMIN_USERNAME" \
+  --data-urlencode "password@-" \
   -d "grant_type=password" | jq -r '.access_token')
 
 if [ -z "$KC_TOKEN" ] || [ "$KC_TOKEN" = "null" ]; then

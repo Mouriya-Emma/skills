@@ -30,27 +30,30 @@ The workload compose (`homelab-trading/stacks/opend/compose.yaml`) configures `e
 
 ## RSA private key — persisted location
 
-Canonical key source: `homelab-trading::secrets.yml::FUTU_RSA_PEM`. The recorded key is 1024-bit RSA; the intended local credential location is:
+Canonical key source: the `FUTU_RSA_PEM_B64` field of `kv/mouriya-s-lab/homelab-trading/runtime` — the single-line base64 form the OpenD entrypoint decodes. The recorded key is 1024-bit RSA; the intended local credential location is:
 
 ```
 ~/.config/futu/futu.pem    (mode 0400)
 ```
 
-Reuse an existing usable key; mere file existence is not success. An empty or unparseable local PEM is a provisioning failure, while a parseable but server-mismatched key is a separate handshake failure. When provisioning/recovery from the canonical SOPS source is required, stage and validate the replacement before touching the destination:
+Reuse an existing usable key; mere file existence is not success. An empty or unparseable local PEM is a provisioning failure, while a parseable but server-mismatched key is a separate handshake failure. When provisioning/recovery from the canonical OpenBao source is required, stage and validate the replacement before touching the destination:
 
 ```bash
 (
   set -euo pipefail
   umask 077
-  key="$HOME/.config/futu/futu.pem"
-  mkdir -p "$HOME/.config/futu"
-  tmp="$(mktemp "$HOME/.config/futu/.futu.pem.XXXXXXXX")"
-  trap 'rm -f "$tmp"' EXIT
-  trap 'exit 1' HUP INT TERM
-  cd ~/Ext/code/homelab-trading
-  sops -d secrets.yml | yq -er '.FUTU_RSA_PEM' > "$tmp"
+  key="${FUTU_PEM_PATH:-$HOME/.config/futu/futu.pem}"
+  mkdir -p "$(dirname "$key")"
+  tmp="$(mktemp "$(dirname "$key")/.futu.pem.XXXXXXXX")"
+  cleanup() { rm -f "$tmp"; }
+  trap cleanup EXIT
+  trap "exit 1" HUP INT TERM
+  # The field travels from bao-exec through the pipe into the staging file; it
+  # never reaches argv, the terminal or a log.
+  bao-exec run --path kv/mouriya-s-lab/homelab-trading/runtime -- printenv FUTU_RSA_PEM_B64 \
+    | base64 --decode > "$tmp"
   if [[ ! -s "$tmp" ]] || ! openssl pkey -in "$tmp" -passin pass: -check -noout >/dev/null 2>&1; then
-    printf '%s\n' 'OpenD key provisioning failed: extracted PEM is empty or invalid' >&2
+    printf "OpenD key provisioning failed: extracted PEM is empty or invalid\n" >&2
     exit 1
   fi
   chmod 400 "$tmp"
@@ -58,13 +61,15 @@ Reuse an existing usable key; mere file existence is not success. An empty or un
 )
 ```
 
-This requires `sops`, Mike Farah `yq`, and `openssl`. Failed extraction or validation removes the staging file and leaves any existing canonical file unchanged; no partial result becomes `futu.pem`. Validation suppresses key output and uses an empty passphrase explicitly so an unexpected encrypted PEM fails rather than prompting. A successful local parse proves usable private-key syntax/consistency, not server key agreement; verify that through the encrypted quote connection.
+Set `FUTU_PEM_PATH` to stage the recovered key somewhere other than `~/.config/futu/futu.pem` (evidence collection, a client host) without touching the canonical file; the staging file is always created in the destination directory so the final `mv` is atomic.
 
-Uses the homelab-tf age identity (Bitwarden note `homelab-tf-sops-age-key`); the macOS SOPS identity path is `~/Library/Application Support/sops/age/keys.txt`. Check the existing local setup rather than assuming it is provisioned. Missing decryption access is a credential-integration gap; do not request a pasted PEM.
+This requires `bao-exec`, `base64` and `openssl`. Failed extraction or validation removes the staging file and leaves any existing canonical file unchanged; no partial result becomes `futu.pem`. Validation suppresses key output and uses an empty passphrase explicitly so an unexpected encrypted PEM fails rather than prompting. A successful local parse proves usable private-key syntax/consistency, not server key agreement; verify that through the encrypted quote connection.
 
-The PEM in `secrets.yml` is the canonical copy. Any client host that
-needs to talk to opend gets it from there; do not copy the PEM into
-client repos.
+`bao-exec` uses the workstation OpenBao identity (`BAO_ADDR`, `BAO_EXEC_AUTH`, `~/.config/bao-exec/{role_id,secret_id}`). Check the existing local setup rather than assuming it is provisioned. A failed read is a credential-integration gap; do not request a pasted PEM.
+
+The PEM in `kv/mouriya-s-lab/homelab-trading/runtime` is the canonical copy. Any client host that needs to talk to opend reads it from there through `bao-exec`; do not copy the PEM into client repos.
+
+Rotation: write the new `FUTU_RSA_PEM_B64` with an `admin` token (`bao kv patch kv/mouriya-s-lab/homelab-trading/runtime FUTU_RSA_PEM_B64=-`, value on stdin), then redeploy the affected Stack: `km -p trading x deploy-stack opend`. A KV write alone deploys nothing.
 
 ## Python client — minimal working snippet
 

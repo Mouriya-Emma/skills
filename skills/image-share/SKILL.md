@@ -1,6 +1,6 @@
 ---
 name: image-share
-description: Upload local image evidence to img.237575.xyz for a public URL usable in GitHub PRs. The installed helper resolves auth from env or the vctcn-edge SOPS file; callers supply the image path, not credentials. Not for non-image assets or permanent archival.
+description: Upload local image evidence to img.237575.xyz for a public URL usable in GitHub PRs. The installed helper resolves auth from env or the vctcn-edge OpenBao path; callers supply the image path, not credentials. Not for non-image assets or permanent archival.
 ---
 
 # image-share
@@ -37,19 +37,18 @@ Before embedding, verify anonymous HTTP 200 with an image content type and view 
 The helper resolves the password in order:
 
 1. Nonempty `ZERO721_PASSWORD` in the environment.
-2. SOPS-decrypt `vctcn-edge/secrets.yml` (the workload repo that declares the 0721 Stack) and select the nonempty string `VCTCN_EDGE_ZERO721_RUNTIME_PASSWORD` with Mike Farah `yq`. That key is the retained admin's current login password; the repo's `VCTCN_EDGE_ZERO721_ADMIN_PASSWORD` only seeds an empty database and does not log in to the existing one.
+2. The `vctcn-edge` workload repo's OpenBao ops path: `bao-exec run --path kv/mouriya-s-lab/vctcn-edge/ops -- printenv VCTCN_EDGE_ZERO721_RUNTIME_PASSWORD`. That field is the retained admin's current login password; the repo's `VCTCN_EDGE_ZERO721_ADMIN_PASSWORD` only seeds an empty database and does not log in to the existing one. `bao-exec` uses the workstation OpenBao identity (`BAO_ADDR`, `BAO_EXEC_AUTH`, `~/.config/bao-exec/{role_id,secret_id}`); the value stays inside `bao-exec` and the helper's pipe.
 
-It does not use Keychain or prompt for credentials. Follow `credentials-from-owning-source`: resolve the existing local age/SOPS setup without exposing plaintext; do not ask the user to paste a password, print decrypted files, or create a second secret store.
+It does not use Keychain or prompt for credentials. Follow `credentials-from-owning-source`: read through `bao-exec` without exposing plaintext; do not ask the user to paste a password, print the value, or create a second secret store.
 
 | Variable | Default / purpose |
 |---|---|
 | `ZERO721_BASE_URL` | `https://img.237575.xyz` |
 | `ZERO721_EMAIL` | `mouriya@vctcn.local` |
 | `ZERO721_PASSWORD` | Explicit environment override from an authorized secret source |
-| `ZERO721_WORKLOAD_REPO` | `/Users/mouriya/Ext/code/vctcn-edge` |
-| `ZERO721_SECRETS_FILE` | `$ZERO721_WORKLOAD_REPO/secrets.yml` |
+| `ZERO721_OPENBAO_PATH` | `kv/mouriya-s-lab/vctcn-edge/ops` |
 
-All paths require `curl` and `jq`; SOPS fallback additionally requires `sops`, Mike Farah `yq`, and a usable age identity. Missing file/tool/key is a local integration failure, not a reason to hand-feed credentials.
+All paths require `curl` and `jq`; the OpenBao path additionally requires `bao-exec` and a working workstation identity. A missing tool, unreadable path or failed login is a local integration failure, not a reason to hand-feed credentials.
 
 ## Requests, observations, and recovery
 
@@ -58,8 +57,8 @@ The helper logs in per invocation with `POST /api/auth/login`, JSON `{name: <ema
 | Failure / observation | Action |
 |---|---|
 | Missing/unreadable file | Correct the evidence path. The helper checks file readability, not whether bytes are an image. |
-| SOPS/tooling failure | Check configured repo/file paths and existing age/tool setup without printing secrets. |
-| `login failed` | Check selected host/email and the workload repo's credential source; the helper neither clears Keychain nor performs rotation. Admin credential changes belong to the 0721 Stack in `vctcn-edge`. |
+| OpenBao/tooling failure | The helper exits non-zero naming `bao-exec` and the path. Check `BAO_ADDR`, the workstation identity, the path and its policies without printing the value. |
+| `login failed` | The credential the helper used is not the account's current password. The `zero721` Stack does not interpolate `VCTCN_EDGE_ZERO721_RUNTIME_PASSWORD`, so no Stack deployment changes it. Check the selected host/email, then confirm the password that account actually uses on the 0721 side and make `kv/mouriya-s-lab/vctcn-edge/ops` match it — write the value there with an `admin` token, value on stdin (`bao kv patch kv/mouriya-s-lab/vctcn-edge/ops VCTCN_EDGE_ZERO721_RUNTIME_PASSWORD=-`). The helper neither clears Keychain nor performs rotation. |
 | `already uploaded` | Reuse the saved URL. The error does not recover it. If genuinely new evidence is needed, capture it again; the helper's re-encode hint is not a guarantee against server-side deduplication. |
 | Other upload HTTP error | Inspect the diagnostic privately; do not capture stderr as the URL. A 413/size rejection is likely the image-size limit: 0721's default `upload.image_size_limit` is 8 MiB (Axum global 16 MiB, NPM body 25 MiB), but `Config.toml` persists in the 0721 data directory on VM 180 and may override it — shrink the image or check the live config. |
 | Public URL is 404/non-image or does not render | Do not claim evidence uploaded successfully; investigate delivery/rendering. |
@@ -68,4 +67,9 @@ Transcoding, deduplication, and key format are server behavior, not promises enf
 
 ## Service boundary
 
-This skill uploads evidence; it does not administer 0721. The 0721 deployment is the Komodo Stack `zero721` declared in `mouriya-s-lab/vctcn-edge` (`komodo/syncs/zero721.toml`, `stacks/zero721/`), running on Server `vctcn-app1`; change or debug it through `km`. The `img.237575.xyz` proxy host is NPM runtime state on CT 171. VM, network and ingress changes go through `iac-projects`.
+This skill uploads evidence; it does not administer 0721. The 0721 deployment is the Komodo Stack `zero721` declared in `mouriya-s-lab/vctcn-edge` (`komodo/syncs/zero721.toml`, `stacks/zero721/`), running on Server `vctcn-app1`; change or debug it through `km`. Two different value groups feed it:
+
+- This skill's login password is `VCTCN_EDGE_ZERO721_RUNTIME_PASSWORD` in `kv/mouriya-s-lab/vctcn-edge/ops`, read by the helper through `bao-exec`; the `zero721` Stack does not interpolate it.
+- The `zero721` Stack's own values (`VCTCN_EDGE_ZERO721_ADMIN_*`, `VCTCN_EDGE_ZERO721_JWT_SECRET`) are fields of `kv/mouriya-s-lab/vctcn-edge/runtime`, which the Stack's `compose_cmd_wrapper` reads at deploy time.
+
+The `img.237575.xyz` proxy host is NPM runtime state on CT 171. VM, network and ingress changes go through `iac-projects`.
