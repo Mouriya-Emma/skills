@@ -37,11 +37,11 @@
 # 必读（动手前通读全文，不以 grep 代替）
 - 树根的契约与设计修正 comment；本轮每个 child 的全文与全部 comment。
 - 列出的全部设计章节、契约类型与例子；近期契约 commit：<SHA / comment 链接>。
-- repo rules；实现前读 `skill://writing-pr` 与 `skill://gh-contract`，对每个 child 跑 `ghc ev plan <child>` 规划证据。
+- repo rules；实现前读 `skill://writing-pr` 与 `skill://gh-contract`。
 
 # 交付
 - 每个 repo 基于缓冲分支当前提交建一个工作分支，一起实现本轮全部 child，核心代码由你亲自写；其余是否委派、怎样拆由你按策略原文决定。
-- 提交后在这一个 head 上对每个 child 用 `ghc ev run` 采集证据，强度按该 child 的「测试形态」，不升级；Web 按 `skill://ego-browser` 走真实用户路径，截图经 `--artifacts` 采集。`ghc ev check <child>` 退出码 0 的 child 才开 PR。
+- 提交后在这一个 head 上对每个 child 跑 `ghc ev plan <child>`，按 writing-pr「证据」逐行采集：验收行只写了观察什么，用哪条命令观察由你现在决定；每条记录是对真实入口的一次直接调用（`ghc ev run`）或真实浏览器会话的截图（按 `skill://ego-browser` 操作后 `ghc ev attach`），不写也不运行采集脚本、driver 或测试套件。在哪里采集按该 child 的「测试形态」，不升级。`ghc ev check <child>` 退出码 0 的 child 才开 PR。
 - 每个要开 PR 的 child：推分支 `<缓冲分支>-c<child 编号>-r<r>` 指向同一个 head；开 PR，base 是缓冲分支，正文第一行 `Closes <owner>/<repo>#<N>`，按 writing-pr 写实现说明；`ghc lint <PR>` 与 `ghc ev publish <PR>` 退出码 0。
 - 跑 repo 校验命令。
 
@@ -71,12 +71,12 @@
 
 # 必读（动手前通读全文，不以 grep 代替）
 - issue 全文与全部 comment；issue 列出的全部设计章节、契约类型与例子。
-- repo rules；实现前读 `skill://writing-pr` 与 `skill://gh-contract`，用 `ghc ev plan <issue>` 规划证据。
+- repo rules；实现前读 `skill://writing-pr` 与 `skill://gh-contract`。
 
 # 交付
 - 实现整个 issue，核心代码由你亲自写。
-- 一个 PR，base 是默认分支，首行 `Closes <owner>/<repo>#<N>`。证据只经 `ghc ev run` / `ghc ev attach` 采集（Web 按 `skill://ego-browser` 走真实用户路径，截图经 `--artifacts` 采集）；`ghc ev check <issue>` 退出码 0 才开 PR，开 PR 后 `ghc lint <PR>` 与 `ghc ev publish <PR>` 退出码都是 0。
-- 跑 issue 指定的命令与 repo 校验命令。
+- 一个 PR，base 是默认分支，首行 `Closes <owner>/<repo>#<N>`。提交后跑 `ghc ev plan <issue>`，按 writing-pr「证据」逐行采集：用哪条命令观察由你在实现后决定；每条记录是对真实入口的一次直接调用（`ghc ev run`）或真实浏览器会话的截图（按 `skill://ego-browser` 操作后 `ghc ev attach`），不写也不运行采集脚本、driver 或测试套件。`ghc ev check <issue>` 退出码 0 才开 PR，开 PR 后 `ghc lint <PR>` 与 `ghc ev publish <PR>` 退出码都是 0。
+- 跑 repo 校验命令。
 
 # 契约问题
 同「树的一轮」。编排者要把设计修正随你的 PR 落地时，会请你推送当前 branch 并暂停推送；它推上 commit 后你拉取再继续，并在 PR 实现说明里注明该 commit 由编排者提交及裁定链接。
@@ -107,7 +107,7 @@
 全新一轮 review：<PR 链接>（交付 <issue 链接>），HEAD <SHA>，base 分支 <branch>。先读 `skill://review-pr`。<树内：同一 head 上还有 <其他 PR 链接>，各由别的 reviewer 审；你只审本 PR 交付的 issue。>
 
 # 你在 review-pr 里的角色
-你同时是 review-pr 的主审与执行层：Gate 1–5 全部由你亲自完成，包括 Gate 5 的代码与检查，不再派任何审查子代理。按用户要求，你把结论直接发到 PR thread，这一点改写 review-pr「执行层不创建或修改 GitHub 对象」的限制；除这条结论 comment（及必要的更正 comment）外不写 GitHub。编排者会核实你的发现并决定合并。
+Gate 1–5 全部由你亲自完成，包括 Gate 5 的代码审查，不再派任何审查子代理。按用户要求，你把结论直接发到 PR thread，这一点改写 review-pr「执行代码审查」里不创建或修改 GitHub 对象的只读边界；除这条结论 comment（及必要的更正 comment）外不写 GitHub。编排者会核实你的发现并决定合并。
 
 # 分工
 <共有块>
@@ -122,7 +122,7 @@
 - 在自己的工作目录里检出 <SHA>（detached），确认 `git rev-parse HEAD`，不相信继承来的 worktree。HEAD 变化立即停下，报告编排者。
 - 按 Gate 1–5 顺序审，首个失败即停；不裁定 Gate 6。
 - 以 issue 的问题、预期结果与范围为尺，不追加它没写的要求；diff 之外的既有问题标「范围外」。树内 PR 的 diff 含同一 head 上其他 child 的改动：只审本 issue 负责的部分，其他 child 的改动只在它破坏本 issue 的结果时才算本 PR 的缺陷。
-- Gate 4 判断作者证据是否真的观察到结果，不重跑验收表；怀疑某条证据时可以跑针对该疑点的探针，探针结果不替代作者证据。
+- Gate 4 判断作者证据是否真的观察到结果，不重跑验收表；记录里的命令是脚本、driver、测试套件或把准备动作与多行串成的链时，该行无效。怀疑某条证据时可以跑针对该疑点的探针，探针结果不替代作者证据。
 - 遇到契约歧义，发给编排者裁定，不自行裁定。
 - 发现落在编排者提交的 commit（<SHA 列表>）上时，下一责任人写编排者。
 
@@ -146,9 +146,9 @@
 <APPEND_SYSTEM.md 全文与指定 system prompt 区块，逐字>
 
 # 做法
-- 先读 `skill://gh-contract`，跑 `ghc ev plan <总体验收 issue>`。
+- 先读 `skill://gh-contract` 与 `skill://writing-pr`「证据」，跑 `ghc ev plan <总体验收 issue>`。
 - 每个 repo 在自己的工作目录里干净检出上面列出的 SHA；部署型 repo 在 <repo 交付规则允许的目标环境> 上部署该提交后观察。
-- 逐行用 `ghc ev run <总体验收 issue> --row N --checkout <各 repo 检出> ... -- <命令>` 采集；截图用 `--artifacts`。不复用 child 的证据、driver 或测试。
+- 逐行采集：命令行能读到的结果用 `ghc ev run <总体验收 issue> --row N --checkout <各 repo 检出> ... -- <对真实入口的一条命令>`，界面上的结果按 `skill://ego-browser` 操作后用 `ghc ev attach` 登记截图。用哪条命令观察由你决定；不写也不运行采集脚本、driver 或测试套件，不复用 child 的证据。
 - `ghc ev check <总体验收 issue>` 退出码 0 才报告完成；发现组合缺陷时给出最小复现，不修代码。
 - 除 `ghc` 上传截图附件外不写 GitHub；证据包由编排者发布。
 

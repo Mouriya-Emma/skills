@@ -16,7 +16,7 @@ const warnings = (text: string) => parseIssue(text, { repo, hasParent: false }).
 
 function standard(opts: { faces?: string[]; form?: string; rows?: string[]; outcomes?: string[]; extraScope?: string } = {}): string {
   const faces = opts.faces ?? ["cli"];
-  const rows = opts.rows ?? ["| 1 | cli | function | 覆盖 结果 1：输出新字段 | `app run` | 本地 | exit 0 |"];
+  const rows = opts.rows ?? ["| 1 | cli | 覆盖 结果 1：输出新字段 | 本地 | exit 0 |"];
   return [
     "# 标题",
     "",
@@ -36,8 +36,8 @@ function standard(opts: { faces?: string[]; form?: string; rows?: string[]; outc
     "## 测试形态",
     opts.form ?? "e2e",
     "## 验收标准",
-    "| # | 面 | Dimension | Check | Command | Env | Expect |",
-    "|---|---|---|---|---|---|---|",
+    "| # | 面 | Check | Env | Expect |",
+    "|---|---|---|---|---|",
     ...rows,
   ].join("\n");
 }
@@ -63,14 +63,14 @@ describe("issue contract", () => {
   });
 
   test("iac only admits e2e", () => {
-    const text = standard({ faces: ["iac"], form: "集成", rows: ["| 1 | iac | environment | 覆盖 结果 1：路由生效 | `tofu apply` | prod | ok |"] });
+    const text = standard({ faces: ["iac"], form: "集成", rows: ["| 1 | iac | 覆盖 结果 1：路由生效 | prod | ok |"] });
     expect(errors(text, true)).toContain("面 iac 不允许测试形态 集成，可选：e2e");
   });
 
   test("crossing families needs a packaging reason, and is still warned", () => {
     const rows = [
-      "| 1 | gui | function | 覆盖 结果 1：页面显示 | `x` | 本地 | ok |",
-      "| 2 | iac | environment | 覆盖 结果 1：路由 | `y` | prod | ok |",
+      "| 1 | gui | 覆盖 结果 1：页面显示 | 本地 | ok |",
+      "| 2 | iac | 覆盖 结果 1：路由 | prod | ok |",
     ];
     expect(errors(standard({ faces: ["gui", "iac"], rows }))).toContain(
       "打包 issue：跨 应用/基础设施，必须写「打包理由：…」；跨 repo 的组合必须拆分",
@@ -83,7 +83,7 @@ describe("issue contract", () => {
   test("role and multi-outcome coverage parse from the Check column", () => {
     const text = standard({
       outcomes: ["- 结果 1：a", "- 结果 2：b"],
-      rows: ["| 1 | cli | function | 覆盖 结果 1、结果 2 [负例]：拒绝非法输入 | `x` | 本地 | exit 2 |"],
+      rows: ["| 1 | cli | 覆盖 结果 1、结果 2 [负例]：拒绝非法输入 | 本地 | exit 2 |"],
     });
     const body = parseIssue(text, { repo, hasParent: false }).value;
     expect(body?.kind).toBe("standard");
@@ -106,10 +106,10 @@ describe("issue contract", () => {
       "## 预期结果",
       "- 结果 1：端到端可读",
       "## 验收标准",
-      "| # | 面 | Dimension | Check | Command | Env | Expect |",
-      "|---|---|---|---|---|---|---|",
-      "| 1 | gui | integration | 覆盖 结果 1；经由 #12 acme/infra#40：提交后可读 | `x` | prod | ok |",
-      "| 2 | gui | integration | 覆盖 结果 1：缺经由 | `y` | prod | ok |",
+      "| # | 面 | Check | Env | Expect |",
+      "|---|---|---|---|---|",
+      "| 1 | gui | 覆盖 结果 1；经由 #12 acme/infra#40：提交后可读 | prod | ok |",
+      "| 2 | gui | 覆盖 结果 1：缺经由 | prod | ok |",
       "## 依赖关系",
       "- Depends on: #12, acme/infra#40",
     ].join("\n");
@@ -119,6 +119,24 @@ describe("issue contract", () => {
     const rows: readonly Row[] = body?.kind === "integration" ? body.rows : [];
     expect(rows[0]?.via.map((r) => `${r.repo.name}#${r.number}`)).toEqual(["app#12", "infra#40"]);
     expect(parsed.diagnostics.map((d) => d.message)).toContain("#2 缺少「经由」：总体验收的每行写明经过哪些 child");
+  });
+
+  test("a table that still carries Dimension and Command columns is read without them", () => {
+    const text = standard()
+      .replace("| # | 面 | Check | Env | Expect |\n|---|---|---|---|---|", "| # | 面 | Dimension | Check | Command | Env | Expect |\n|---|---|---|---|---|---|---|")
+      .replace("| 1 | cli | 覆盖 结果 1：输出新字段 | 本地 | exit 0 |", "| 1 | cli | function | 覆盖 结果 1：输出新字段 | `app run \\| grep x` | 本地 | exit 0 |");
+    expect(errors(text)).toEqual([]);
+    const body = parseIssue(text, { repo, hasParent: false }).value;
+    const row = body?.kind === "standard" ? body.rows[0] : undefined;
+    expect(row?.covers).toEqual([1]);
+    expect(row?.env).toBe("本地");
+    expect(row?.expect).toBe("exit 0");
+  });
+
+  test("a library face is observed through a real entry: the driver form is gone", () => {
+    const text = standard({ faces: ["library"], form: "driver", rows: ["| 1 | library | 覆盖 结果 1：返回新字段 | 本地 | ok |"] });
+    expect(errors(text, true)).toContain("未知的测试形态「driver」，可选：e2e、集成、最薄入口");
+    expect(errors(text.replace("\ndriver\n", "\n最薄入口\n"), true)).toEqual([]);
   });
 
   test("a no-code issue lists exact paths, never globs", () => {
@@ -156,7 +174,7 @@ describe("evidence pack", () => {
       attachments: [],
       issueRev: issue.bodyRev,
     };
-    const row = (id: number): Row => ({ id, line: 1, face: "cli", dimension: "function", covers: [id], role: "正例", via: [], check: "", command: "", env: "", expect: "" });
+    const row = (id: number): Row => ({ id, line: 1, face: "cli", covers: [id], role: "正例", via: [], check: "", env: "", expect: "" });
     const check: CheckResult = {
       issue,
       rows: [

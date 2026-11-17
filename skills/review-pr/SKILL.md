@@ -5,88 +5,68 @@ description: 审核 open PR、重试证据和 issue 关闭条件，裁决 reques
 
 # review-pr
 
-本 skill 决定检查顺序、证据是否成立和允许的裁决，不代替实现者补交付。问题契约见 `skill://writing-issue`，实现说明与证据包见 `skill://writing-pr`，parent/child 完备性见 `skill://writing-complex-issues`。有确定答案的检查用 `skill://gh-contract` 的 `ghc`，以它的结果为准。
+本 skill 决定检查顺序、证据是否成立和允许的裁决，不代替实现者补交付。问题契约见 `skill://writing-issue`，实现说明与证据见 `skill://writing-pr`，树的完备性见 `skill://writing-complex-issues`。有确定答案的检查以 `skill://gh-contract` 的 `ghc` 为准。
 
-先用 `ghc fetch` 完整取得本地 issue/PR payload 和附件，包含所有 review/thread、timeline、checks 与图边；用完整上下文判断新决定和重试。源码和 diff 从本地 checkout 读取，不经 GitHub API 取代码。讨论位置及合并后不可变边界按 `~/.claude/rules/git.rule.md` 的「GitHub issue / PR routing rule」。
+先用 `ghc fetch` 完整取得 issue 与 PR 的本地 payload（全部 review、thread、timeline、checks、图边、附件）；源码和 diff 从本地 checkout 读，不经 GitHub API 取代码。讨论位置与已合并记录的处理按 `~/.claude/rules/git.rule.md` 的「GitHub issue / PR routing rule」。
 
-## Review 边界
+## 边界
 
-- **把关，不代工：** 不替作者补缺失测试、截图、PR body 或代码。独立核实已有证据/发现可以做，但不能把自己补跑的结果当成作者已交证据；缺口要求作者在 PR thread 补。
-- **结果优先：** 每条预期结果至少有一行覆盖由 `ghc lint` 保证；review 判断的是覆盖行是否真的经真实路径观察到该结果本身，卫生行和实现者本次自写测试不算。覆盖行观察不到结果是 issue 契约问题，先指出并要求修正契约；不能放行，也不能让实现者中途改契约来匹配实现。修正只补齐 issue 已写结果的覆盖，不借机新增结果。
-- **不扩大 issue：** review 以原 issue 的问题、原因、预期结果与范围边界为尺，不追加它没写的目标、结果、验收或重构要求。本 PR diff 自身引入的缺陷（回归、越界改动、secret/垃圾泄漏、破坏既有性质）在范围内；diff 之外的既有问题、顺带发现的改进和「最好也做」的建议不阻塞本 PR，按 `skill://writing-issue` 另开 issue 并在 PR thread 附链接。
-- **关闭有语义：** 原子结果和 checkpoint 满足，且实现已合并或有正当 no-code 理由，才完成。parent/wrapper 还须全部 child/subtask 完成且总体验收通过；连贯剩余交付物必须有 child 承载，不因它是 parent 就跳过。
+- **把关，不代工。** 不替作者补测试、截图、PR body 或代码；缺口要求作者在 PR thread 补。自己补跑的结果不算作者证据。
+- **以 issue 为尺。** 按原 issue 的问题、原因、预期结果与范围边界审，不追加它没写的目标或重构要求。本 PR diff 自身引入的缺陷（回归、越界改动、secret 或垃圾泄漏、破坏既有性质）在范围内；diff 之外的既有问题和「最好也做」的建议不阻塞本 PR，按 `skill://writing-issue` 另开 issue 并在 PR thread 附链接。
+- **验收行有问题是 issue 的问题。** 验收行观察不到它声称覆盖的结果时，指出并要求修正 issue；不放行，也不让实现者改写验收去迁就实现。修正只补齐 issue 已写结果的观察，不借机新增结果。
 
-## PR 审查与 issue 关闭
+## Gate
 
-Gate 1–5 决定 open PR 是否可批准，按序检查，首个失败即停。Gate 6 独立决定 issue 是否可关闭：批准尚未合并的 PR 不等于接受 issue 已完成。open PR 的实现/证据反馈发 PR thread；issue 契约本身的争议按全局路由回 issue，并在 PR 指明阻塞。
+Gate 1–5 决定 open PR 能否批准，按序检查，首个失败即停。Gate 6 单独决定 issue 能否关闭。
 
-### 1. 目标身份
+**1. 身份。** `ghc lint <PR>` 的身份检查通过：第一行指名的 issue 真实存在，PR 落在该去的分支（独立 issue 合入默认分支；树内 child 合入缓冲分支；tree PR 把缓冲分支合入默认分支并关闭该 repo 全部未关闭的树内 issue）。再确认 diff 不是不相关问题的拼盘。树内 child 的 PR 与同一轮其他 child 共用 head，diff 含其他 child 的改动不算拼盘：只审本 issue 负责的部分。
 
-`ghc lint <PR>` 的身份检查通过：正文第一行指名的 issue 真实存在，PR 落在它该去的分支——树内 child 的 PR 合入树的缓冲分支（GitHub 不为它登记关闭关系），独立 issue 的 PR 合入默认分支且 GitHub 恰好登记关闭该 issue；tree PR 把缓冲分支合入默认分支并关闭该 repo 里全部未关闭的树内 issue。再确认 repo 是预期目标，diff 不是不相关问题的拼盘。树内 child 的 PR 与同一轮其他 child 的 PR 共用一个 head，diff 含其他 child 的改动，这不是拼盘：只审本 issue 负责的部分。无 PR 时，no-PR 路径要有 issue/PR 历史中的显式理由。身份或关闭条件不成立就说明缺失项，不进入代码 review。
+**2. 路由。** 问题、范围和 follow-up 在 issue，实现说明和证据在 PR。证据没有经 `ghc ev publish` 发成证据包、而是写在正文或别处时，要求作者用 `ghc` 重新采集发布，reviewer 不代为搬运。
 
-### 2. 路由
+**3. 正文。** `ghc lint <PR>` 通过。再核对：实现说明回答了 diff 为何消除 issue 写明的原因，只贴标签或复述 diff 不算；比较过多个方案的写出了被否方案及理由；改变结果或跨单元契约的偏离没有在 PR 内自行放行。
 
-问题、原因、Why、scope、结果和 follow-up 在 issue；PR 是实现说明和证据。PR 出现后的实现/重试不能只留在 issue、本地 handoff 或 memory。证据没有经 `ghc ev publish` 发成证据包、而是写在正文或别处时，要求作者用 `ghc` 重新采集发布，而非 reviewer 搬运代交。
+**4. 证据。** 当前 HEAD 上本 issue 的 `evidence/<owner>/<repo>#<N>` 状态为 success，否则直接失败，要求作者补采后重新发布（同一 head 上其他 child 的状态不算）。齐全之后读证据包判断实质：
 
-### 3. Body 形式
+- 记录里的命令是不是对真实入口的一次直接调用。脚本文件、driver、测试套件、把准备动作或多行串成一条的链，都不是证据，该行按无效处理。
+- 输出或截图里能不能直接读到该行的 Expect；负例是否真的走了拒绝路径；`[保持]` 行是否经过被改的代码路径。
+- 实现者本次自写的测试、mock、stub 的输出不算覆盖行的观察；CI 状态不是业务证明。
 
-`ghc lint <PR>` 通过：必需段齐全、正文没有证据类段落；无代码变更 PR 另含 diff 不超出 issue「范围」、相对链接与锚点可解析、每条预期结果都有要点标注。再人工核对：默认中文；实现说明回答 diff 为何消除 issue 写明的原因，只贴标签或复述 diff 不算；比较过多个方案的实现选择写出被否方案及否决理由；改变结果或跨单元契约的偏离在 PR 内自行放行的，按契约问题处理。形式不全先补，再进代码 review。
+证据是这张验收表唯一的一次执行，reviewer 不重跑整张表；怀疑某条证据时可以跑针对该疑点的探针，探针结果不替代作者证据。
 
-### 4. 证据实质
+无代码变更 PR 没有运行证据，改为核对要点：每个要点概括思路或语义变化，不是逐行复述 diff；与当前 head 的 diff 一致，没有虚报或漏掉实质语义变化；「调整思路」写清原有问题、依据与取舍。空泛要点（「优化了措辞」）视同缺失。
 
-当前 HEAD 上本 issue 的 `evidence/<owner>/<repo>#<N>` 状态为 success（状态挂在 sha 上，HEAD 一变就不存在；同一 head 上其他 child 的证据状态不算；`ghc fetch` 的 payload 里可见）；否则本 gate 直接失败，要求作者补采后重新发布。齐全之后读该状态链接的证据包判断实质。证据是这张验收表唯一的一次执行，reviewer 不重跑整张表；怀疑某条证据时可以跑针对该疑点的探针，探针结果不替代作者证据。判断：读数是否真的观察到 issue 写的结果，负例是否真的走了拒绝路径，截图是否看得出所证结果，`[保持]` 行是否经过被改代码路径。CI 或本地 CI-parity 状态如实记载，但不是业务证明。证据有没有意义取决于验收行本身：验收行设计得观察不到结果时，按「结果优先」作为 issue 契约问题处理。
+**5. 代码。** 前四个 gate 通过后审本地 diff：实现是否满足目标、有无越界、是否泄漏 secret 或运行时文件、是否符合 repo 惯例。沿关键调用和数据路径核实实现说明属实：机制消除了所述原因；不变边界所述的条件真把未受影响方挡在改动之外；权威状态仍只有一个 owner；调用方与旧路径切换完成。无代码变更 PR 改为核对：改后文档各部分意图自洽，与关联文档语义一致，没有新旧并存的矛盾指导。
 
-**无代码变更 PR 没有运行证据**，改为核对要点实质：每个要点概括思路或语义变化，逐文件逐行复述 diff、贴改前改后原文的不算；要点与当前 head 的 diff 一致，没有虚报，也没有漏掉实质语义变化（新增或删除的规则、收窄或放宽的边界）；「调整思路」写清原有问题、依据与取舍，而非复读「做了什么」。空泛要点（「优化了措辞」「完善了文档」）视同缺失。
+**6. 关闭资格。**
 
-### 5. 代码与检查
-
-前四 gate 通过后，交执行层检查本地 diff：实现是否满足目标、有没有越界、测试/检查是否覆盖风险、是否泄漏 secret/运行时文件/生成垃圾、是否符合 repo 惯例与安全要求。另沿关键调用/数据路径核实实现说明是否属实：机制是否消除所述原因、不变边界所述的隔离条件是否真把未受影响方挡在改动之外、权威状态是否仍只有一个 owner 且消费侧未另立副本、结果不变量与错误/生命周期路径、必要调用方与旧路径 cutover 是否完成。无代码变更 PR 改为核对：改后文档各部分意图自洽、与关联文档语义一致、没有留下新旧并存的矛盾指导（引用的文件与锚点已由 `ghc lint` 检查）。只查本次受影响的责任，不借 review 重设计全仓库，也不把 issue 之外的要求当成本 PR 的缺陷；符合作者所述结构不等于结果正确。执行层只产出发现，不替本协议裁决；不能用手工 grep 冒充执行层已完成。
-
-### 6. 关闭资格
-
-- 原子 issue：实现 PR 已合并，或 no-code 理由已明确发布。
-- 树内 child：它的 PR 已合入缓冲分支，且 tree PR 已合入默认分支（GitHub 在 tree PR 合并时关闭它）。
-- 树根：`ghc merge-ready <树根> --tree` 通过后 tree PR 已合并，即剩余 child 全部合入缓冲分支，总体验收 issue 的证据包齐全且采于缓冲分支当前提交；无 PR 的 child 有可引用的 no-code/duplicate/invalid/out-of-scope/already-satisfied/moot 理由。
+- 独立 issue：实现 PR 已合并，或 no-code 理由已发布。
+- 树内 child：它的 PR 已合入缓冲分支，且 tree PR 已合入默认分支。
+- 树根：`ghc merge-ready <树根> --tree` 通过后 tree PR 已合并；无 PR 的 child 有可引用的 no-code / duplicate / invalid / out-of-scope / already-satisfied / moot 理由。
 - blocked：外部 blocker 具体且已发布，写明解除条件。
-- invalid/duplicate/moot：理由持久、带链接/引用。
 
-存在剩余交付物则要求原子 child，不能靠 wrapper 标签接受关闭。Gate 1–5 全过的 open PR 可以按 repo 政策 approve；在实际合并前，关联 issue 仍不满足 Gate 6。执行层的 Ready to merge 既不代替前五个 gate，也不授权提前关闭 issue。
+存在连贯的剩余交付物就要求开 child 承载，不靠 parent 标签关闭。Gate 1–5 全过的 PR 可以按 repo 政策 approve；实际合并之前，issue 仍不满足 Gate 6。
 
-## OMP 执行层
+## 执行代码审查
 
-用 `task` 工具派只读子代理执行代码审查：按本机当前可用的 agent 定义选择能读代码、跑只读命令、且未被禁用的那个，显式写明 agent，不省略 agent 字段落到默认值。不依赖旧插件 slash command，也不因磁盘上有插件文件就声称它在 OMP 可调用。agent 名不写进 PR comment。
+Gate 5 用 `task` 工具派只读子代理：按本机当前可用的 agent 定义选能读代码、跑只读命令的那个，显式写明 agent。同一 diff 同一目的不重复分派。任务里给出：
 
-交给执行者的任务应包含：
+- 本地 checkout 与真实 base/head commit；`ghc fetch` 落盘的 payload 位置。
+- issue 的原因、责任定位与范围边界，作者的实现说明与证据包，repo-local 规则，以及要特别核对的风险。
+- 只读边界：不改代码，不补证据，不创建或修改 GitHub 对象，不运行会改变环境的验证。
+- 输出：每个发现带 `file:line`、可观察后果和依据；区分已证实缺陷、疑点、范围外和未覆盖范围；没有问题时如实报告检查范围。
 
-- 本地 checkout、真实 base/head commit 或未提交改动范围；`ghc fetch` 落盘的本地 issue/PR payload 与附件位置。
-- 目标契约（含 issue 的原因、责任定位与范围边界）、作者的实现说明与证据包 comment、repo-local 规则，以及需要特别核对的类型、权威归属、错误恢复、安全或交互风险。
-- 范围边界：以 issue 契约为尺，diff 外既有问题与改进建议单独标为「范围外」，不计入本 PR 缺陷。
-- 只读边界：不修改代码，不替作者补测试/截图/证据，不创建或修改 GitHub 对象，不运行会改变环境的验证。
-- 输出契约：每个发现包含 `file:line`、可观察后果和依据；区分已证实缺陷、疑点和未覆盖范围；找不到问题时如实报告检查范围，不凭空凑发现。
-
-同一 diff 同一目的不重复分派。按实质独立范围拆任务，而不是固定凑多个角色。Main 核实发现并裁决，不能把子代理的结论直接当成已通过全部 gate。
-
-没有满足要求的可用 agent 时报告 Gate 5 blocker，不偷偷安装插件；源码仍只从本地 checkout 读，GitHub 元数据仍走完整本地 payload。
-
-## 消化报告
-
-审查发现按以下步骤消化；这些是本协议的核实步骤，不要求加载其他插件，也不进入实现：
-
-1. 读完整发现，理解主张；不懂先澄清。
-2. 对照本地 diff、周边代码、repo 契约与设计记录核实。agent 可能判断错，严重级别不是证据。
-3. 评估本 repo 的既有架构决策与风险容忍度；与它们冲突的建议给出技术反驳。
-4. 存活发现转为带 `file:line`、可观察影响和具体要求的 PR-thread 评论；未成立的丢弃或说明反证，不原样转发每条 Critical/Important。范围外的存活发现不作本 PR 的修改要求，按「不扩大 issue」另开 issue 并附链接。
+没有满足要求的 agent 时报告 Gate 5 blocker。子代理只产出发现，裁决由你作出：对照本地 diff、周边代码和 repo 既有决策逐条核实，严重级别不是证据；存活的发现转成带 `file:line`、可观察影响和具体要求的 PR-thread 评论，不成立的丢弃或写明反证，范围外的另开 issue。agent 名不写进 PR comment。
 
 ## 裁决
 
-| 裁决 | 条件 / 后续 |
+| 裁决 | 条件 |
 |---|---|
-| Approve / accept PR | Gate 1–5 全过；按 repo 政策处理合并。issue 关闭资格另按 Gate 6 判断。 |
-| Request changes | 在原 issue 范围内，PR 协议、证据、代码或检查不足；要求在 PR thread。 |
-| Needs PR-thread response | 反馈仅在 issue/handoff 处理；要求补 PR 评论并按需更新 body。 |
-| Needs issue split / child issues | 拼盘或 parent 有连贯剩余交付物；要求按 issue 树契约拆分/挂接。 |
-| No-code close | duplicate/invalid/out-of-scope/already-satisfied/moot，理由在 issue。 |
-| Blocked | 具体外部依赖或不可用执行能力阻塞，发布解除条件。 |
-| Do not close | 证明或 child 完成度不足。 |
+| Approve | Gate 1–5 全过；合并按 repo 政策，issue 关闭另按 Gate 6 |
+| Request changes | 在原 issue 范围内，身份、正文、证据或代码不足；要求发在 PR thread |
+| Needs PR-thread response | 反馈只在 issue 或本地 handoff 里处理过；要求补 PR 评论 |
+| Needs issue split | 拼盘，或 parent 有连贯的剩余交付物 |
+| No-code close | duplicate / invalid / out-of-scope / already-satisfied / moot，理由发在 issue |
+| Blocked | 具体的外部依赖阻塞，已发布解除条件 |
+| Do not close | 证明或 child 完成度不足 |
 
-输出指出首个失败 gate、依据链接/文件锚点、已确认与未确认部分及下一步责任人；发到 PR thread 的结论 comment 第一行是 `ghc gate header <PR> --result <PASS|FAIL@GateN>` 的输出，原样放在开头，让之后的人能判断它是否仍有效。已合并后的缺陷另开 issue，不回写旧 PR。
+结论 comment 发在 PR thread，第一行是 `ghc gate header <PR> --result <PASS|FAIL@GateN>` 的输出，原样放在开头；其后写首个失败的 gate、依据的链接或 `file:line`、已确认与未确认的部分、下一步责任人。已合并后发现的缺陷另开 issue，不回写旧 PR。

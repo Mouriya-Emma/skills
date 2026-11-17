@@ -19,9 +19,9 @@ description: ghc CLI：程序化读取与检查 GitHub issue/PR 内容——完�
 | `ghc lint <issue>` | 发布或修改 issue 之后 |
 | `ghc lint <umbrella> --tree` | 发布或修改 issue 树之后 |
 | `ghc lint <PR>` | 创建 PR、改 PR 正文之后：身份与分支（树内 child 合入缓冲分支；独立 issue 合入默认分支且恰好关闭它；tree PR 从缓冲分支合入默认分支并关闭该 repo 全部未关闭的树内 issue）、正文模板、无代码变更的范围与链接 |
-| `ghc ev plan <issue>` | 开始实现前：列出每个验收行要采集的证据步骤 |
-| `ghc ev run <issue> --row N[,M] [--step S] [--artifacts DIR] [--checkout PATH]... [--timeout SEC] -- <command>` | 跑验收命令：执行并记录，输出照常打印 |
-| `ghc ev attach <issue> --row N[,M] [--step S] [--checkout PATH]... <image|dir>...` | 已有截图时登记进证据 |
+| `ghc ev plan <issue>` | 实现提交后、采集前：列出每个验收行的观察对象、环境、期望，以及要采集的步骤 |
+| `ghc ev run <issue> --row N[,M] [--step S] [--artifacts DIR] [--checkout PATH]... [--timeout SEC] -- <command>` | 采集一条记录：执行一条对真实入口的命令并记录，输出照常打印 |
+| `ghc ev attach <issue> --row N[,M] [--step S] [--checkout PATH]... <image|dir>...` | 把真实会话里截的图登记进证据 |
 | `ghc ev check <issue|PR>` | 开 PR 前与发布前：逐行报告 linked / stale / invalid / missing；在本地检出上检查树内 child 时，改动前截图以 `origin/<缓冲分支>` 为 base |
 | `ghc ev publish <PR|总体验收 issue>` | 发布证据包 comment，并在 HEAD 写本 issue 的 `evidence/<owner>/<repo>#<N>` 状态（同一 head 上的多个 child PR 各有各的状态） |
 | `ghc gate header <PR> --result PASS|FAIL@GateN [--design REF]` | review 结论 comment 的第一行，原样放在 comment 开头 |
@@ -34,6 +34,7 @@ description: ghc CLI：程序化读取与检查 GitHub issue/PR 内容——完�
 ## 证据的规矩
 
 - 证据只能经 `ghc ev run` / `ghc ev attach` 产生；不在 PR 正文、comment 或报告里手写输出、日志或截图。
+- 验收行不带命令：`ghc ev run` 后面的命令由采集的人在实现后决定，是对真实入口的一次直接调用。脚本文件、driver、测试套件、把准备动作或多行串成的链不是证据（`skill://writing-pr`「证据」）。
 - 采集前提交改动：checkout 有未提交的 tracked 改动时 `ghc` 拒绝采集。HEAD 一变，旧记录对新 HEAD 失效，在新 HEAD 上重跑。
 - 截图经 `skill://gh-attachment` 上传为 GitHub 附件；日志以末尾片段写进证据包。
 - `ghc ev publish` 发现疑似凭据时拒绝发布：换成不打印凭据的命令重新采集。

@@ -1,4 +1,4 @@
-// `ghc ev plan`: the evidence an issue owes, as the commands that would capture it.
+// `ghc ev plan`: the evidence an issue owes: per row what to observe, and the capture step that records it.
 
 import { getIssue } from "../github.ts";
 import { parseIssue } from "../issue.ts";
@@ -21,12 +21,14 @@ export async function evPlan(ref: Ref): Promise<void> {
   for (const row of body.rows) {
     const req = requirementFor(row.face, form);
     const covers = row.covers.length === 0 ? "卫生" : row.covers.map((c) => `结果 ${c}`).join("、");
-    process.stdout.write(`\n#${row.id} ${row.face} · ${covers} · ${row.role} · Command: ${row.command}\n`);
+    process.stdout.write(`\n#${row.id} ${row.face} · ${covers} · ${row.role}\n  观察：${row.check}\n  环境：${row.env}\n  期望：${row.expect}\n`);
     const steps = body.kind === "integration" ? req.steps.filter((s) => s.anchor === "head") : req.steps;
     for (const s of steps) {
       const where = s.anchor === "base" ? "在 base 提交的干净检出上" : body.kind === "integration" ? "在包含全部 child 合并提交的检出上" : "在当前 HEAD 的干净检出上";
-      const capture = s.needsImage ? `--artifacts <截图目录> -- <产生截图的命令>（或 ghc ev attach ${refKey(ref)} --row ${row.id} --step ${s.step} <图片>）` : "-- <命令>";
-      process.stdout.write(`  ${s.step}${req.ordered ? "（按顺序）" : ""}：${where}\n    ghc ev run ${refKey(ref)} --row ${row.id} --step ${s.step} ${capture}\n`);
+      const capture = s.needsImage
+        ? `ghc ev attach ${refKey(ref)} --row ${row.id} --step ${s.step} <真实会话里截的图>`
+        : `ghc ev run ${refKey(ref)} --row ${row.id} --step ${s.step} -- <对真实入口的一条命令>`;
+      process.stdout.write(`  ${s.step}${req.ordered ? "（按顺序）" : ""}：${where}\n    ${capture}\n`);
     }
   }
 }

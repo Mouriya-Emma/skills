@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { arr, bool, field, num, type Obj, obj, str } from "../json.ts";
 import { type Ref, refKey } from "../ref.ts";
-import { isStep, type Step } from "../requirements.ts";
+import { type Step, storedStep } from "../requirements.ts";
 
 export type Completion =
   | { readonly kind: "exited"; readonly code: number }
@@ -96,8 +96,9 @@ function parseCapture(o: Obj): Capture {
 
 export function parseRecord(v: unknown): EvidenceRecord {
   const o = obj(v, "record");
-  const step = str(field(o, "step"), "record.step");
-  if (!isStep(step)) throw new Error(`record: unknown step ${step}`);
+  const stepText = str(field(o, "step"), "record.step");
+  const step = storedStep(stepText);
+  if (step === null) throw new Error(`record: unknown step ${stepText}`);
   return {
     id: str(field(o, "id"), "record.id"),
     issue: str(field(o, "issue"), "record.issue"),

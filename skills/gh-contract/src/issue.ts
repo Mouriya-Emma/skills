@@ -3,13 +3,11 @@
 import { bullets, type Doc, findSection, firstTable, type Line, nonEmpty, parseDoc, type Section } from "./markdown.ts";
 import {
   type Diagnostic,
-  type Dimension,
   err,
   type Face,
   type Form,
   familyOf,
   formsFor,
-  isDimension,
   isFace,
   isForm,
   type Role,
@@ -23,12 +21,10 @@ export type Row = {
   readonly id: number;
   readonly line: number;
   readonly face: Face;
-  readonly dimension: Dimension;
   readonly covers: readonly number[];
   readonly role: Role;
   readonly via: readonly Ref[];
   readonly check: string;
-  readonly command: string;
   readonly env: string;
   readonly expect: string;
 };
@@ -147,16 +143,20 @@ function parseScope(sec: Section, d: Diagnostic[]): Scope {
 function parseForm(sec: Section, d: Diagnostic[]): Form | null {
   const values = nonEmpty(sec.lines).map((l) => ({ n: l.n, v: l.text.trim().replace(/^[-*]\s+/, "") }));
   if (values.length !== 1) {
-    d.push(err(at(sec.line), "测试形态只写一个值：e2e、集成、最薄入口 或 driver"));
+    d.push(err(at(sec.line), "测试形态只写一个值：e2e、集成 或 最薄入口"));
     return null;
   }
   const only = values[0] as { n: number; v: string };
   if (!isForm(only.v)) {
-    d.push(err(at(only.n), `未知的测试形态「${only.v}」，可选：e2e、集成、最薄入口、driver`));
+    d.push(err(at(only.n), `未知的测试形态「${only.v}」，可选：e2e、集成、最薄入口`));
     return null;
   }
   return only.v;
 }
+
+const ROW_HEADER = ["#", "面", "Check", "Env", "Expect"];
+/** Tables written while rows still carried a pre-written command; those two columns are not read. */
+const ROW_HEADER_WITH_COMMAND = ["#", "面", "Dimension", "Check", "Command", "Env", "Expect"];
 
 const CHECK_RE = /^覆盖\s*((?:结果\s*\d+\s*[、,，]?\s*)+)(?:\[(正例|负例|保持)\])?\s*(?:[；;]\s*经由\s+([^：:]+?))?\s*[：:]/;
 
@@ -166,14 +166,24 @@ function parseRows(sec: Section, repo: Repo, kind: IssueKind, d: Diagnostic[]): 
     d.push(err(at(sec.line), "验收标准缺少表格"));
     return [];
   }
-  const expected = ["#", "面", "Dimension", "Check", "Command", "Env", "Expect"];
-  if (table.header.join("|") !== expected.join("|")) {
-    d.push(err(at(table.headerLine), `验收表的表头必须是 | ${expected.join(" | ")} |`));
+  const header = table.header.join("|");
+  const withCommand = header === ROW_HEADER_WITH_COMMAND.join("|");
+  if (!withCommand && header !== ROW_HEADER.join("|")) {
+    d.push(err(at(table.headerLine), `验收表的表头必须是 | ${ROW_HEADER.join(" | ")} |`));
     return [];
   }
+  if (withCommand) {
+    d.push(warn(at(table.headerLine), `Dimension 与 Command 列不再读取：怎样观察由采集证据的人决定；修订正文时表头改为 | ${ROW_HEADER.join(" | ")} |`));
+  }
+  const width = table.header.length;
   const rows: Row[] = [];
   for (const r of table.rows) {
-    const [idText, faceText, dimText, check, command, env, expect] = r.cells as [string, string, string, string, string, string, string];
+    if (r.cells.length < width) {
+      d.push(err(at(r.n), `这一行只有 ${r.cells.length} 格，表头有 ${width} 列`));
+      continue;
+    }
+    const cells = withCommand ? [r.cells[0], r.cells[1], r.cells[3], r.cells[5], r.cells[6]] : r.cells;
+    const [idText, faceText, check, env, expect] = cells as [string, string, string, string, string];
     const id = Number(idText);
     if (!Number.isInteger(id) || id <= 0) {
       d.push(err(at(r.n), `行号「${idText}」不是正整数`));
@@ -184,11 +194,6 @@ function parseRows(sec: Section, repo: Repo, kind: IssueKind, d: Diagnostic[]): 
       d.push(err(at(r.n), `#${id} 的面「${faceText}」未知`));
       continue;
     }
-    if (!isDimension(dimText)) {
-      d.push(err(at(r.n), `#${id} 的 Dimension「${dimText}」未知，可选 function、environment、integration、assumption`));
-      continue;
-    }
-    if (command.replace(/`/g, "").trim() === "") d.push(err(at(r.n), `#${id} 缺少 Command`));
     const m = CHECK_RE.exec(check);
     let covers: number[] = [];
     let role: Role = "正例";
@@ -202,7 +207,7 @@ function parseRows(sec: Section, repo: Repo, kind: IssueKind, d: Diagnostic[]): 
     } else if (/^覆盖/.test(check)) {
       d.push(err(at(r.n), `#${id} 的 Check 写法应为「覆盖 结果 N[、结果 M][负例|保持]：…」`));
     }
-    rows.push({ id, line: r.n, face: faceText, dimension: dimText, covers, role, via, check, command, env, expect });
+    rows.push({ id, line: r.n, face: faceText, covers, role, via, check, env, expect });
   }
   if (rows.length === 0) d.push(err(at(sec.line), "验收表没有任何行"));
   return rows;

@@ -3,14 +3,11 @@
 export const FACES = ["gui", "cli", "service", "library", "data", "iac", "agent-config"] as const;
 export type Face = (typeof FACES)[number];
 
-export const FORMS = ["e2e", "集成", "最薄入口", "driver"] as const;
+export const FORMS = ["e2e", "集成", "最薄入口"] as const;
 export type Form = (typeof FORMS)[number];
 
 export const ROLES = ["正例", "负例", "保持"] as const;
 export type Role = (typeof ROLES)[number];
-
-export const DIMENSIONS = ["function", "environment", "integration", "assumption"] as const;
-export type Dimension = (typeof DIMENSIONS)[number];
 
 export type Family = "应用" | "基础设施" | "agent 配置";
 
@@ -38,7 +35,6 @@ export function formsFor(face: Face): readonly Form[] {
     case "gui":
       return ["e2e", "集成"];
     case "library":
-      return ["e2e", "集成", "driver"];
     case "cli":
     case "service":
     case "data":
@@ -49,7 +45,6 @@ export function formsFor(face: Face): readonly Form[] {
 export const isFace = (s: string): s is Face => (FACES as readonly string[]).includes(s);
 export const isForm = (s: string): s is Form => (FORMS as readonly string[]).includes(s);
 export const isRole = (s: string): s is Role => (ROLES as readonly string[]).includes(s);
-export const isDimension = (s: string): s is Dimension => (DIMENSIONS as readonly string[]).includes(s);
 
 export type Severity = "error" | "warn";
 export type Diagnostic = { readonly severity: Severity; readonly where: string; readonly message: string };

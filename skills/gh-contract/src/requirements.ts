@@ -10,7 +10,6 @@ export const STEPS = [
   "start",
   "log",
   "request",
-  "driver",
   "preview",
   "migrate",
   "apply",
@@ -19,6 +18,12 @@ export const STEPS = [
 ] as const;
 export type Step = (typeof STEPS)[number];
 export const isStep = (s: string): s is Step => (STEPS as readonly string[]).includes(s);
+
+/** A step name read back from a stored record or a published pack; library rows recorded `driver` before it became `run`. */
+export function storedStep(s: string): Step | null {
+  if (s === "driver") return "run";
+  return isStep(s) ? s : null;
+}
 
 /** Where a step's capture must sit relative to the change. */
 export type Anchor = "head" | "base";
@@ -35,13 +40,12 @@ export function requirementFor(face: Face, form: Form): Requirement {
     case "gui":
       return { steps: [{ step: "before", anchor: "base", needsImage: true }, at("after", true)], ordered: false };
     case "cli":
+    case "library":
       return { steps: [at("run")], ordered: false };
     case "service":
       return form === "e2e"
         ? { steps: [at("deploy"), at("log"), at("request")], ordered: true }
         : { steps: [at("start"), at("log"), at("request")], ordered: true };
-    case "library":
-      return { steps: [at("driver")], ordered: false };
     case "data":
       return form === "e2e"
         ? { steps: [at("preview"), at("migrate"), at("readback")], ordered: true }

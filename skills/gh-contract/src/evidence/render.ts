@@ -3,7 +3,7 @@
 import { firstTable, parseDoc } from "../markdown.ts";
 import { type Face, isFace, isRole, type Role } from "../model.ts";
 import { parseRepo, type Repo, refKey, repoKey } from "../ref.ts";
-import { isStep, type Step } from "../requirements.ts";
+import { type Step, storedStep } from "../requirements.ts";
 import type { CheckResult, StepStatus } from "./check.ts";
 import type { EvidenceRecord } from "./record.ts";
 
@@ -200,9 +200,10 @@ export function parsePack(text: string): Pack | null {
   if (table === null) return null;
   const rows: PackRow[] = [];
   for (const r of table.rows) {
-    const [rowText, face, coversText, role, step, status, command, result] = r.cells as [string, string, string, string, string, string, string, string];
+    const [rowText, face, coversText, role, stepText, status, command, result] = r.cells as [string, string, string, string, string, string, string, string];
     const n = Number(rowText);
-    if (!Number.isInteger(n) || !isFace(face) || !isRole(role) || !isStep(step)) return null;
+    const step = storedStep(stepText);
+    if (!Number.isInteger(n) || !isFace(face) || !isRole(role) || step === null) return null;
     const st = STATUSES.find((s) => s === status);
     if (st === undefined) return null;
     rows.push({

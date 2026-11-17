@@ -1,85 +1,84 @@
 ---
 name: writing-issue
-description: 起草或修订单个 GitHub issue，定义结果验收和 parent 归属，写作期当场收口遗漏、不留未决项；相关 issue 树转 writing-complex-issues。
+description: 起草或修订单个 GitHub issue：问题与原因、责任定位、必要决策、预期结果和验收行（只写观察什么与期望什么，不写命令），并定 parent 归属；写作期当场收口遗漏。相关 issue 树转 writing-complex-issues。
 ---
 
 # writing-issue
 
-本 skill 管单个 issue 的问题与原因、责任定位、必要决策、结果契约和归属。发布的 issue 不含未决问题或等待结论的阻塞项：写作中发现的遗漏按 [decision-closure](../writing-complex-issues/references/decision-closure.md) 当场收口——取得事实，或与 subagent 讨论后裁决。两个及以上相关 issue 用 `skill://writing-complex-issues` 组织成树；PR 实现说明与证据用 `skill://writing-pr`，关闭裁决用 `skill://review-pr`。
+本 skill 管单个 issue。两个及以上相关 issue 用 `skill://writing-complex-issues` 组织成树；PR 的实现说明与证据用 `skill://writing-pr`，关闭裁决用 `skill://review-pr`。issue 与 PR 各承载什么按 `~/.claude/rules/git.rule.md` 的「GitHub issue / PR routing rule」，更严的 repo-local 规则优先；目标 repo 使用 coder-loop preset 时，先读 `presets/<preset>/contract.md` 的分类 label、必需段和 review replay 契约。
 
-## 先取得事实
+## 事实与来源
 
-- 按 `~/.claude/rules/git.rule.md` 的「GitHub issue / PR routing rule」分配 issue/PR 语义；更严的 repo-local `CLAUDE.md` 优先。目标 repo 使用 coder-loop preset 时，先读 `presets/<preset>/contract.md` 的分类 label、必需段和 review replay 契约。
-- 读取 issue/PR 一律先用 `skill://gh-contract` 的 `ghc fetch <ref>` 完整落盘（正文、全部讨论/评审、timeline、checks、图边、附件，分页取全，契约引用展开到 `refs/`），随后只分析本地文件。不用 `gh issue view` 的窄输出或仅 ID 查询代替完整上下文。
-- 每句动机可追溯到真实来源：原文引用 + issue/PR 链接、`owner/repo@<sha>`、代码或日志锚点，或操作员给出的理由（写成陈述并注明出自操作员）。操作员原话不进正文：对话原文依赖会话上下文，读者读不出目标也无从核实；其中决定目标、范围或约束的内容转写进对应段落。转述标清来源；不拼接不同来源伪装成一句引用，矛盾要点明。
-- 起草前落实业务输入：具体 workload、样本总体、使用场景、验证对象及受益者。不能以未定义的「真实 / 目标 / 代表性 X」替代，也不把定义责任下推给实现者。源未指定且调查未能确定的目标扩展、依赖、约束不自行添加；实现目标必然遇到的分叉（非法或不存在的输入、重复请求、并发竞争、错误报告方式）不是扩展，按「方案边界」裁决。
+- 读取 issue/PR 先用 `skill://gh-contract` 的 `ghc fetch <ref>` 完整落盘，之后只读本地文件。
+- 每句动机可追溯：原文引用加链接、`owner/repo@<sha>`、代码或日志锚点，或操作员给出的理由（写成陈述并注明出自操作员，不贴对话原话）。转述标清来源，来源互相矛盾时点明。
+- 业务输入写具体：workload、样本总体、使用场景、验证对象。不以「真实 / 代表性 X」代替，也不把定义责任推给实现者。
+- 发布的 issue 不含未决项。写作中发现的缺失事实或未定分叉按 [decision-closure](../writing-complex-issues/references/decision-closure.md) 当场收口：派 subagent 取得事实，或讨论后裁决；操作员独有且会改变目标的事实直接问操作员。源未指定、调查也确定不了的目标扩展不自行添加。
 
-## 一个问题，一份结果契约
+## 正文
 
-**原子性：** 一段连贯 Why 能论证整个 issue；若自然裂成几个独立问题，就拆 children，由 umbrella 说明共同 driver，树内 children 按 [writing-complex-issues](../writing-complex-issues/SKILL.md)「切分轴」沿实现责任切分，不按功能切。不要按版本、批次、repo、时间窗或标题关键词机械分组，归属要读实际 body 后判断。标题和正文不放草稿 ID、agent ID、working-group 名或临时源树路径；关联项用标题或真实链接。issue 也不写编排：由谁或哪个 agent、模型实现、审查、验收，实现顺序、并行与分支安排都由交付方按 `skill://delivering-issues` 决定，写进 issue 会把 issue 和某台机器的配置绑在一起；agent、模型或交付流程本身就是要改的对象时除外。
+**一个问题。** 一段连贯 Why 能论证整个 issue；裂成几个独立问题就拆成树。正文不放草稿 ID、临时路径，也不写编排（谁实现、用哪个 agent 或模型、实现顺序、分支安排）：那由交付方按 `skill://delivering-issues` 决定。agent、模型或交付流程本身是要改的对象时除外。
 
-**问题写到原因：** 先写可观察症状与影响，再写原因：哪个责任单元的哪项状态/规则、哪条不变量或缺失的能力产生了症状，附文件 + 符号 + 当前行为的概念锚点。原因在写作期查证并带证据：派 subagent 读代码、复现、查日志或跑实验，不开前置调查 issue Blocks 实现，也不把未证实原因标成假设留给实现者。不影响修法的旁支原因不写。多个症状同根时写根及其覆盖面。新功能没有被违反的不变量，写现有责任单元缺什么能力，不编造违约。原因不是改法：写「值在 Y 处未经 parse 跨域」，不写「在 Y 加校验函数」。
+**问题写到原因。** 先写可观察的症状与影响，再写原因：哪个责任单元的哪项状态或规则、哪条不变量或缺失的能力产生了症状，附文件、符号和当前行为。原因在写作期查证并带证据，不开前置调查 issue，不把未证实的原因留给实现者；新功能写现有单元缺什么能力。原因不是改法：写「值在 Y 处未经 parse 跨域」，不写「在 Y 加校验函数」。
 
-**责任定位：** 写明问题落在哪个现有责任单元；它维护相关状态/规则（owner，核心）还是只消费既定契约（外围）；哪些调用方或消费者受影响、是否需同步迁移。状态的 owner 在别的单元、repo 或外部系统时，issue 向 owner 提请求或依赖它，不在消费侧另立副本。跨单元的目标边界属于必要决策，写作期裁决；单元内模块划分留给 PR，不预选。只改给人读的文本（README、设计文档、指南、ADR）的改动用「无代码变更 issue」模板，不写 owner 分析；skill、prompt、rule、agent 定义被 agent 读取，按标准模板写，影响范围是 `agent-config`。
+**责任定位。** 写明问题落在哪个现有责任单元，它维护相关状态（owner）还是只消费既定契约，哪些调用方受影响、是否同步迁移。状态的 owner 在别的单元、repo 或外部系统时，向 owner 提请求或依赖它，不在消费侧另立副本。
 
-**方案边界：** 按 [decision-closure](../writing-complex-issues/references/decision-closure.md) 的 a/b 判据：会改变操作员观察结果、或迫使另一实现单元同步改变的分叉（权威归属、状态空间、错误分类、接口语义），在 issue 裁决并写入「责任与必要决策」，只钉协作所需的最小语义；单元内部组织、算法、私有命名、模块划分留给 PR。裁决先查代码现状与项目既有惯例，不以「源未说明」列成未定义；缺事实就在写作期取得，设计分叉与 subagent 讨论后当场裁决并写依据与被否方案；操作员独有事实（业务动机、商业约束）缺失且会改变目标时，写作期直接问操作员。按 decision-closure 处置外部 owner 状态与只能实现后观察的结果。树内 child 不自行裁决跨单元契约：用契约引用 `owner/repo#<树根> 决策 <comment-id> §K` 继承树根已裁决条款（`ghc fetch` 抓取时展开原文），写作中发现缺失或冲突当场回到树根裁决，发布后才暴露的走树根设计修正。源要求的外部契约照写。
+**必要决策。** 会改变操作员观察结果、或迫使另一实现单元同步改变的分叉（权威归属、状态空间、错误分类、接口语义），在 issue 裁决并写进决策表，只钉协作所需的最小语义；单元内部的组织、算法、命名留给 PR。树内 child 不自行裁决跨单元契约：用契约引用 `owner/repo#<树根> 决策 <comment-id> §K` 继承树根条款，缺失或冲突回到树根裁决。
 
-**结果从原因推出：** 预期结果写问题消失后可观察的性质，按真实风险追问：哪些性质要成立、哪些已有性质不能变、相关的拒绝输入或非法转移如何处理、生命周期终点和适用边界在哪。只写本次确有的项，不为填表罗列不相关边界。
+**预期结果。** 写问题消失后可观察的性质，只写本次确有的项：
 
-- **不变边界：** 改动只作用于部分人群、入口或状态时，单列一条结果写明其余部分的已有行为保持不变，并用 `[保持]` 覆盖行经过被改代码路径观察它。
-- **逐 variant：** issue 裁决了状态空间或错误分类时，结果逐个 variant 写出可观察表现（某个错误码对应的界面、消息或 exit status），不用「出错时给出提示」概括；这是枚举状态空间，不是枚举实现机制。每个 variant 至少有一行覆盖行直接观察它。
+- 改动只作用于部分人群、入口或状态时，单列一条写其余部分的已有行为不变。
+- 裁决了状态空间或错误分类时，逐个 variant 写可观察表现（哪个错误码对应什么界面、消息或 exit status），不用「出错时给出提示」概括。
+- 只能在实现后观察的已定方案结果照常写成一条结果，不预写失败备选方案。环境暂不可用的验证写进「继承验证义务」并指明下游 owner，不可二次延期。
 
-**未知：** 未文档化第三方行为、跨环境可行性等高风险假设在写作期验证，结论带证据写入。只能在实现后观察的已定方案结果写成 `assumption` 验收行，不预写失败备选方案。环境暂不可用的验证必须有具名下游 owner，写入继承验证义务；继承义务不可二次延期。
+只改给人读的文本（README、设计文档、指南、ADR）用「无代码变更 issue」模板。skill、prompt、rule、agent 定义由 agent 读取，按标准模板写，面是 `agent-config`。
 
-### 影响范围与测试形态
+## 影响范围、测试形态、验收标准
 
-`## 影响范围` 每行一个面：`gui`、`cli`、`service`、`library`、`data`、`iac`、`agent-config`，可多选；验收表每行在「面」列写明它观察哪个面。面决定证据要交什么（例如 `gui` 要改动前后截图），由 `ghc ev plan` 列出，issue 不复述。`ghc lint` 判定为跨族组合的是打包 issue：不推荐，应拆分；确需在同一 repo 一起交付时写一行 `打包理由：…`，lint 仍给出警告。跨 repo 的组合必须拆分，因为一个 PR 只关闭一个 repo 里的一个 issue。
+`## 影响范围` 每行一个面：`gui`、`cli`、`service`、`library`、`data`、`iac`、`agent-config`。面决定证据要交哪些步骤（例如 `gui` 要改动前后截图），由 `ghc ev plan` 列出。`library` 没有自己的入口，经消费它的真实入口观察。跨族组合（应用、基础设施、agent 配置）应拆分；确需在同一 repo 一起交付时加一行 `打包理由：…`。跨 repo 必须拆分。
 
-`## 测试形态` 写一个值：
+`## 测试形态` 写一个值，决定证据在哪里采集：
 
-- `e2e`：真实入口 + 真实目标环境，部署后观察。
-- `集成`：真实入口或公开接口，依赖是真实的进程、数据库、文件，在本地或测试环境运行，不要求部署到目标环境。
-- `最薄入口`：owner 经最薄真实入口观察它维护的状态语义（合法转移、拒绝非法输入、生命周期终点）。
-- `driver`：固定输入的一次性 driver 调用公开 API。
+- `e2e`：真实入口加真实目标环境，部署后观察。不在 issue 树里的 issue 只能是它。
+- `集成`：真实入口或公开接口，依赖是真实的进程、数据库、文件，在本地或测试环境。
+- `最薄入口`：owner 经最薄的真实入口观察它维护的状态语义。
 
-不在 issue 树里的 issue 只能是 `e2e`。树内 child 按 [child-body.md](../writing-complex-issues/references/child-body.md) 选择，整棵树的真实 e2e 由总体验收 issue 承担。面与形态的合法组合由 `ghc lint` 检查。验收表只执行一次：实现者按测试形态采集的证据就是验收，review 判断证据而不重跑，合并后也不重跑。
+后两种只用于树内 child，整棵树的 e2e 由总体验收 issue 承担。
 
-### checkpoint 写法
+`## 验收标准` 是一张表，每行 `# / 面 / Check / Env / Expect`：观察什么、在哪个环境、期望看到什么。
 
-验收表每行有 `# / 面 / Dimension / Check / Command / Env / Expect`：具体可执行命令、目标环境、期望读数或 exit status。维度按真实风险选择 `function`、`environment`、`integration`、`assumption`；涉及 Docker、网络、部署、browser、外部服务或跨 repo 时不能 function-only。
-
-Check 列以 `覆盖 结果 N` 开头，覆盖多条写 `覆盖 结果 1、结果 2`；负例加 `[负例]`，保持既有性质加 `[保持]`，例如 `覆盖 结果 2 [负例]：…`。不以「覆盖」开头的行是卫生行，同样要跑，但不承担结果。每条结果至少有一行覆盖由 `ghc lint` 检查；覆盖行必须通过真实路径直接观察**该结果本身**：typecheck、套件计数、残留 grep 只能写成卫生行。覆盖行也不能引用本次实现者将自写的测试；用固定文本 inline driver、真实 CLI/API/UI 或外部终态读数，避免测试注值绕过真实入口。运行强度遵从 `~/.claude/rules/runtime-verification-required.rule.md`。
-
-checkpoint 验结果和被拒的无效行为，不用它强制个人实现偏好。某结果当前无法检验，改成可检验形态或明确进入具名继承义务，不留隐式缺口。发布前模拟最省事的通过路径：若用户问题没解决也能全绿，锐化结果 checkpoint；易混术语首次出现即消歧。
+- **不写命令。** issue 写成时实现还不存在，写作者无从知道实现后结果从哪里、用什么命令能观察到；怎样观察由采集证据的人在实现后决定（`skill://writing-pr`「证据」）。Check 写被观察的对象和入口（哪个页面、哪条 CLI 子命令、哪个接口、控制面的哪项状态），Expect 写可判定的读数、文案或 exit status。
+- **不指派人。** 行里不出现「操作员执行」「由某人确认」：每一行都由采集证据的人自己完成，登录、授权等交互也由其完成。
+- Check 以 `覆盖 结果 N` 开头，多条写 `覆盖 结果 1、结果 2`；拒绝路径加 `[负例]`，保持既有性质加 `[保持]`（要经过被改的代码路径观察）。每条结果至少一行覆盖，每个 variant 至少一行直接观察它。不以「覆盖」开头的行是卫生行。
+- 覆盖行观察结果本身：typecheck、测试套件计数、残留 grep 只能是卫生行。
+- 发布前模拟最省事的通过路径：用户问题没解决也能全绿，就把 Check 和 Expect 写得更具体。
 
 ## 模板
 
-正文中文、简练；代码标识符、命令、路径、API/label、维度名、`Depends on` / `Blocks` / `RFC:` 保留英文，源引文和工具输出保持原样。已落地用过去时，计划工作用祈使句。
+正文中文、简练；代码标识符、路径、API、label、`Depends on` / `Blocks` / `RFC:` 保留英文，源引文和工具输出保持原样。
 
-### future-work 实现 issue
+### 标准 issue
 
 ```markdown
 # <中文标题：一个问题>
 
 ## 目标
 
-<要达成的结果：谁在哪里观察到什么。从设计源或用户请求解析而来，自包含，不贴请求原话。>
+<谁在哪里观察到什么。自包含，不贴请求原话。>
 
 ## 上下文
 
-- **Repo**: `owner/repo`（path: `/local/path`）
-- **Working directory**: <如适用>
+- **Repo**: `owner/repo`
 - **Design doc / source**: <设计文档路径或 issue/PR 链接；没有时省略>
 - **Conventions**: <跨 repo 时明确遵从哪一份契约>
-- **Anchors**: <基准 `owner/repo@<sha>`（写作期查证原因时的提交）；文件 + 符号 + 当前行为；实施前在当前 HEAD grep 核对行号>
+- **Anchors**: <基准 `owner/repo@<sha>`；文件 + 符号 + 当前行为；实施前在当前 HEAD 核对>
 
 ## 问题
 
-<症状与影响；原因（责任单元、状态/规则、不变量或能力缺口）及写作期查证的证据；Why 与来源。不写代码改法。>
+<症状与影响；原因及写作期查证的证据；Why 与来源。不写改法。>
 
 ## 责任与必要决策
 
-- **责任单元**: <现有单元；owner（核心）或消费者（外围）>
+- **责任单元**: <现有单元；owner 或消费者>
 - **受影响方**: <调用方/消费者及是否同步迁移>
 - **决策**: <无则写「无」；有则写成下表，一个分叉一行>
 
@@ -89,8 +88,8 @@ checkpoint 验结果和被拒的无效行为，不用它强制个人实现偏好
 
 ## 预期结果
 
-- 结果 1：<问题消失后可观察的性质或终态，含相关拒绝/边界行为；裁决了状态空间时逐 variant 写表现。>
-- 结果 2：<不变边界：本次改动对象之外的人群、入口或状态，已有行为保持不变。没有这种边界时删去。>
+- 结果 1：<问题消失后可观察的性质；裁决了状态空间时逐 variant 写表现。>
+- 结果 2：<不变边界：改动对象之外的人群、入口或状态保持既有行为。没有时删去。>
 
 ## 范围边界
 
@@ -99,38 +98,38 @@ checkpoint 验结果和被拒的无效行为，不用它强制个人实现偏好
 
 ## 约束
 
-<可选；源强加的外部约束，或树内继承的契约引用 `owner/repo#<树根> 决策 <comment-id> §K`。>
+<可选；源强加的外部约束，或树内继承的契约引用。>
 
 ## 影响范围
 
-- <面，可多选：gui / cli / service / library / data / iac / agent-config>
+- <面，可多选>
 
 ## 测试形态
 
-<e2e / 集成 / 最薄入口 / driver，一个值>
+<e2e / 集成 / 最薄入口，一个值>
 
 ## 验收标准
 
-| # | 面 | Dimension | Check | Command | Env | Expect |
-|---|---|-----------|-------|---------|-----|--------|
-| 1 | cli | function | 覆盖 结果 1：<直接观察什么> | `<可执行命令>` | <具体环境> | <读数 / exit code> |
-| 2 | cli | function | 覆盖 结果 2 [保持]：<经被改代码路径观察未受影响方的行为> | `<可执行命令>` | <具体环境> | <与改动前相同的读数> |
+| # | 面 | Check | Env | Expect |
+|---|---|---|---|---|
+| 1 | cli | 覆盖 结果 1：<在哪个入口观察什么> | <具体环境> | <读数 / 文案 / exit status> |
+| 2 | cli | 覆盖 结果 2 [保持]：<经被改代码路径观察未受影响方的行为> | <具体环境> | <与改动前相同的读数> |
 
 ## 继承验证义务
 
-<可选；同验收表，加 From / Original # 列，注明 owner，不可二次延期。>
+<可选；同验收表，加 From / Original # 列，注明 owner。>
 
 ## 依赖关系
 
-- Depends on: <issue 链接>（<需要的上游已交付后置条件，不是待产出的结论>）
+- Depends on: <issue 链接>（<需要的上游已交付后置条件>）
 - Blocks: <issue 链接>（<谁需要本结果>）
 ```
 
-umbrella child 的契约引用、使用场景、baseline、不应残留等扩展，以及总体验收 issue 的模板，按 [child-body.md](../writing-complex-issues/references/child-body.md)，不另设一套 child 模板。
+树内 child 的扩展区块和总体验收 issue 的模板见 [child-body.md](../writing-complex-issues/references/child-body.md)。
 
 ### 无代码变更 issue
 
-只改给人读的文本时使用。issue 列出要改的确切文件，PR 的 diff 不得超出这份清单（`ghc lint <PR>` 检查）；需要多改文件时先改 issue 的「范围」。不写验收表，不采集运行证据。
+issue 列出要改的确切文件，PR 的 diff 不得超出这份清单（`ghc lint <PR>` 检查）；要多改文件先改「范围」。不写验收表，不采集证据。
 
 ```markdown
 # <中文标题：一个问题>
@@ -160,14 +159,11 @@ umbrella child 的契约引用、使用场景、baseline、不应残留等扩展
 
 ### retroactive umbrella
 
-追溯性组织属于树，使用 [umbrella-body.md](../writing-complex-issues/references/umbrella-body.md) 的 retroactive 模板。它记录已落地事实，不使用未来 Acceptance 清单；不回写已落地 issue/PR。
+组织已落地工作的追溯性 issue 属于树，用 [umbrella-body.md](../writing-complex-issues/references/umbrella-body.md) 的 retroactive 模板；它记录已落地事实，不回写已落地的 issue/PR。
 
 ## 归属、发布与修订
 
-1. 按要改的对象选 home repo：对象由哪个 repo 声明就开在哪个 repo。app 的部署归 km 还是 IaC，按 `personal-infra-routing` 规则的归属判据定，不按 driver 来自哪里定。
-2. 先定 parent。通过完整本地 payload 确认已有 parent 仍合适；新层级先建 parent 再建 child。一个 child 一个 issue parent，另一条线用散文引用。跨 repo（同 org）可连接，无需复制任务。
-3. API 操作及失败恢复见 [sub-issue-api.md](references/sub-issue-api.md)。PR 只用 closing keyword 连接 issue，不参与 sub-issue 边。
-4. 发布或修改后跑 `ghc lint <issue>`，非零就修正正文后重跑。再核对 lint 判断不了的：原子 Why 与来源、症状到原因的证据链与基准提交、责任定位与必要决策、无未决项或指向未来结论的依赖、具体业务输入、外部约束与继承契约、不变边界与逐 variant 结果、覆盖行确实经真实路径观察结果、范围边界、可跑命令和真实风险维度、延期验证 owner、对抗捷径，以及 repo/preset 必需段。起草中的 Source bundle 和内部脚手架不落 GitHub。
-5. 活跃 issue（包括 umbrella 和原子 child）的错误引用、作废前提、错误范围或过时铺垫直接替换；裁决、范围扩展、设计演进以 comment 留迭代记录。树内同时核对引用锚，以及契约引用仍指向有效条款（`ghc fetch` 能展开），按 [comment-layers.md](../writing-complex-issues/references/comment-layers.md) 保持当前任务与决策记录一致；已落地记录遵守全局不可变边界。
-
-历史验收失败案例仅在需要理解反例时读 [acceptance-cases.md](references/acceptance-cases.md)。
+1. **home repo**：要改的对象由哪个 repo 声明，issue 就开在哪个 repo。app 的部署归 km 还是 IaC，按 `personal-infra-routing` 规则的归属判据定。
+2. **parent**：先定 parent 再建 child；一个 child 只有一个 issue parent，另一条线用散文引用；跨 repo（同 org）可以连接。API 操作与失败恢复见 [sub-issue-api.md](references/sub-issue-api.md)。PR 只用 closing keyword 连接 issue。
+3. **发布后**跑 `ghc lint <issue>`，非零就修正正文后重跑。lint 判断不了的自己核对：原因有证据链和基准提交；没有未决项或指向未来结论的依赖；不变边界与逐 variant 结果齐全；覆盖行直接观察结果；验收行里没有命令，也没有指派给人的步骤。
+4. **修订**活跃 issue 时，错误引用、作废前提和过时内容直接替换；裁决、范围变化另发 comment 留记录（[comment-layers.md](../writing-complex-issues/references/comment-layers.md)）；树内同时核对契约引用仍指向有效条款。已落地的记录不回写。

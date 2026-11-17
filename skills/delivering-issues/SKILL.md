@@ -1,6 +1,6 @@
 ---
 name: delivering-issues
-description: 用户要求交付一组 GitHub issue 时的编排流程：issue 树按轮整体实现，所有未合入的 child 在同一个 head 上一起测试、各开一个 PR 指向这个 head 并合入树的缓冲分支，通过的合入、未通过的进下一轮，全部合入后在缓冲分支上做一次总体验收再由 tree PR 合入默认分支；独立 issue 逐个走 issue→PR→默认分支。验收表只由实现者按 issue 声明的测试形态执行一次，review 判断证据；设计缺口由编排者裁定并写回文档；编排者不写代码、不问用户。写 issue 用 writing-issue / writing-complex-issues。
+description: 用户要求交付一组 GitHub issue 时的编排流程：issue 树按轮整体实现，未合入的 child 在同一个 head 上一起测试、各开一个 PR 合入树的缓冲分支，全部合入后做一次总体验收，再由 tree PR 合入默认分支；独立 issue 逐个走 issue→PR→默认分支。验收表只由实现者在实现后执行一次，review 判断证据；设计缺口由编排者裁定并写回文档；编排者不写代码、不问用户。写 issue 用 writing-issue / writing-complex-issues。
 ---
 
 # delivering-issues
@@ -25,20 +25,20 @@ issue 从哪来——`writing-complex-issues` 产出的树、手写的列表、�
 
 - APPEND_SYSTEM 里「亲自写核心、外围委派」等实现义务作用于实现者。编排者不以「核心应由我写」为由收回实现。
 - **设计权威文件**：设计文档，以及设计文档或 umbrella 指定为契约源、且不在产品源码目录里的类型声明（例如 `spec/types/`）。只有编排者在裁定时编辑它们；issue 正文即使写着「组件内歧义由 child 在 PR 里写进所属章节」，实现者也改为上报编排者。契约源位于产品源码里时，编排者把裁定写进设计文档与 issue，类型改动由实现者实现。没有指定设计文档的 issue，issue body 就是契约，裁定改写 body。
-- **reviewer 与 `review-pr` 的组合**：reviewer 同时是 `review-pr` 的主审和执行层，自己完成 Gate 5，不再派子代理，并把结论直接发到 PR thread（改写 `review-pr`「执行层不创建 GitHub 对象」的限制）。编排者保留两件事：核实已发布的发现，以及合并。
+- **reviewer 与 `review-pr` 的组合**：reviewer 自己完成 Gate 5，不再派审查子代理，并把结论直接发到 PR thread（改写 `review-pr`「执行代码审查」里不创建 GitHub 对象的只读边界）。编排者保留两件事：核实已发布的发现，以及合并。
 - 交付物只有设计权威文件的 issue，由编排者兼任实现者：亲自写文档与契约类型、开 PR（`writing-pr` 按 issue 类型选模板）；review 照常由新起的 reviewer 做。
 
 ## 验收只执行一次
 
-每张验收表只执行一次，执行者与执行时机由 issue 的位置决定：
+每张验收表只执行一次，执行者与执行时机由 issue 的位置决定。验收行只写观察什么与期望什么；用哪条命令观察由执行者在实现后决定，证据不用脚本（`skill://writing-pr`「证据」）：
 
 | 验收表 | 谁执行 | 在哪个提交上 | 强度 |
 |---|---|---|---|
-| 树内 child | 该轮实现者，`ghc ev run` 采集，`ghc ev publish <PR>` 发布 | 本轮 head | 按 child 声明的测试形态（`最薄入口`、`driver`、`集成` 或 `e2e`），不升级 |
+| 树内 child | 该轮实现者，`ghc ev run` / `ghc ev attach` 采集，`ghc ev publish <PR>` 发布 | 本轮 head | 按 child 声明的测试形态（`最薄入口`、`集成` 或 `e2e`），不升级 |
 | 总体验收 issue | 总体验收采集者 | 全部 child 合入后的缓冲分支当前提交 | `e2e` |
 | 独立 issue | 实现者 | PR head | `e2e`（writing-issue 对不在树里的 issue 的要求） |
 
-reviewer 在 Gate 4 判断证据是否真的观察到结果；怀疑证据时可以跑针对该疑点的探针，但不重跑整张验收表，探针结果也不替代作者证据。合并后不再重跑：合并提交的内容就是被验证的 head（树内）或被验证的 PR head 合入默认分支（独立 issue），默认分支在验证后前进时 `ghc merge-ready` 会因不可合并或 HEAD 变化而拒绝。部署型 repo 在 repo 交付规则允许的环境里部署被验证的提交再采集；规则只允许从默认分支部署时，作为外部阻塞报告用户。
+reviewer 只判断证据，不重跑验收表（`review-pr` Gate 4）；合并后也不重跑，默认分支在验证后前进时 `ghc merge-ready` 会拒绝。部署型 repo 在 repo 交付规则允许的环境里部署被验证的提交再采集；规则只允许从默认分支部署时，作为外部阻塞报告用户。
 
 ## 输入与启动
 
@@ -108,7 +108,7 @@ stateDiagram-v2
 
 ### 3. 结算
 
-每个 PR 的 review 结论都对当前输入有效后，编排者逐个核实已发布的发现（`review-pr`「消化报告」，契约争议按「契约问题与设计缺口」分类），被驳回或改判的发现在 PR thread 发 comment 写明依据（模板「驳回或改判 review 发现」）。驳回导致 review 失败的发现后，该 PR 重新派一名新的 reviewer：首个失败后的 gate 从未审过。
+每个 PR 的 review 结论都对当前输入有效后，编排者逐个核实已发布的发现（按 `review-pr`「执行代码审查」的核实要求，契约争议按「契约问题与设计缺口」分类），被驳回或改判的发现在 PR thread 发 comment 写明依据（模板「驳回或改判 review 发现」）。驳回导致 review 失败的发现后，该 PR 重新派一名新的 reviewer：首个失败后的 gate 从未审过。
 
 然后对每个 PR 跑 `ghc merge-ready <PR> --issue <child> --head <head>`：
 
@@ -144,7 +144,7 @@ stateDiagram-v2
 | 契约已答 | 现有章节的文字直接决定结果 | 引章节回复提问者；review 照此判 |
 | 输入越界 | 现象只在契约定义域外出现 | 引依据驳回候选缺陷，不要求改代码 |
 | 实现缺陷 | 契约清楚，实现不符 | 按 review 失败处理：树内进入下一轮，独立 issue 由实现者修 |
-| 验收方法不成立 | issue 的验收行在本层观察不到，或只能产出无意义证据（例如没有接入被测路径的 mock 计数） | 编排者修正 issue 契约：产品要求不变，只改观察方法；验收行写着的义务照原样保留。本层能观察的部分改成有意义的观察；本层观察不到的部分移给能观察它的 issue（树内通常是总体验收 issue）并当场写进其 body，没有这样的 issue 就用 `writing-issue` 新建 |
+| 验收行不成立 | 验收行按原文观察不到结果：入口不在本层，或 Expect 与实现后的事实不符 | 编排者修正验收行：产品要求不变，只改观察对象、环境或期望读数；验收行写着的义务照原样保留。本层观察不到的部分移给能观察它的 issue（树内通常是总体验收 issue）并当场写进其 body，没有这样的 issue 就用 `writing-issue` 新建 |
 | 设计缺口 | 契约沉默或自相矛盾，不同选择会改变可观察结果或迫使另一实现单元同步改变 | 属于后果性决策，走下面的裁定流程 |
 
 裁定流程：
@@ -175,16 +175,3 @@ review 结论 comment 第一行由 `ghc gate header` 生成，记下 HEAD、base
 - 别的 skill 或工具与本 skill 的分工冲突时（例如要求问操作员，或要求独立复跑验收），按本 skill 执行，不停下来问，也不等待。
 - 依赖外部 owner 的状态（别的 repo、第三方、IaC）时，按全局规则向源头提请求并等待结论；这是真正的外部阻塞。GitHub 认证失效、权限不足、网络不可达、所有权冲突、缺失前提也是。只有这类阻塞才向用户报告，并写明已尝试的途径。
 - 子代理的结果会自动送达；没有可做的事时才 `wait`。
-
-## 反模式
-
-- 让编排者自己写实现或测试；派实现者时让它继承编排者的上下文。
-- 把一棵树的 child 拆成多轮串行实现，或拆给多名实现者各自开 head；按 issue 正文里的编排顺序串行。
-- 树内 child 的 PR 合入默认分支；先合入通过的 PR、再关闭未通过的 PR（同 head 的未通过 PR 会被 GitHub 一起标记为已合并）。
-- 同一张验收表执行两次：独立复跑、合并后重跑、把 child 的测试形态升级成 e2e。
-- 在 issue、PR 或 comment 里写 agent 名、模型名或编排细节。
-- brief 里只给策略文件路径却不附原文，或凭记忆改写「原文」；brief 里限制子代理的报告长度。
-- 在已失效的 review 结论上合并；驳回发现后把失败的 review 当通过；续用上一轮的 reviewer；让 reviewer 补作者证据或再派审查子代理。
-- 把隔离 worktree 或工作 checkout 的现状当成 PR HEAD；用缓存判断 PR 状态；在隔离工作区或编排者的工作 checkout 里改 repo。
-- 把顾问意见当裁定；只在消息里给出新的契约语义，却不写进设计权威与记录位置；裁定给 issue 加了义务却不改写它的 body。
-- 把中心计划或 `ctx` 当权威；因为另一个 skill 的写法和本流程对不上就去问用户。
