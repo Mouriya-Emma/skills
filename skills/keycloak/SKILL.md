@@ -35,28 +35,30 @@ Keycloak is the reference case of an app that stays in IaC under the placement c
 
 Admin REST examples below are inspection, not an alternative persistent configuration path. Emergency/manual reconciliation requires explicit scope and authorization and must be reconciled to IaC.
 
+The admin credential lives in OpenBao, not in a file in the pve-vctcn repo. Rotate it with an `admin` token against `kv/mouriya-devops/pve-vctcn/ops`; do not write it back into any repository or into the Keycloak provider state by hand.
+
 ## Authentication helper
 
-`token.sh` consumes existing environment credentials; it does not discover or store them. Agents authenticate as the master-realm admin `riri-agent`, never as the operator's `mouriya`. Its password is the pve-vctcn SOPS key `keycloak_agent_password`; load it into the environment without printing it:
+`token.sh` consumes environment credentials; it does not discover or store them. Agents authenticate as the master-realm admin `riri-agent`, never as the operator's `mouriya`. Its password is the `keycloak_agent_password` field of `kv/mouriya-devops/pve-vctcn/ops`; `bao-exec` reads it with the workstation identity, so the password exists only inside that child process and only the resulting token comes back:
 
 ```bash
-export KC_ADMIN_USERNAME=riri-agent
-export KC_ADMIN_PASSWORD="$(sops -d --extract '["keycloak_agent_password"]' /Users/mouriya/Ext/code/devops/pve-vctcn/_shared/secrets/secrets.yml)"
+KC_TOKEN=$(bao-exec run --path kv/mouriya-devops/pve-vctcn/ops -- bash -c '
+  export KC_ADMIN_USERNAME=riri-agent
+  export KC_ADMIN_PASSWORD="$keycloak_agent_password"
+  source /Users/mouriya/.claude/skills/keycloak/token.sh || exit 1
+  printf %s "$KC_TOKEN"')
 ```
 
-If that path is unavailable, investigate the integration gap rather than asking the user to paste secrets or run the command for you.
+Never put the password in the agent's own shell: no `export KC_ADMIN_PASSWORD=…` outside `bao-exec`, and no printing of the token or the password. `bao-exec` needs the workstation identity (`BAO_ADDR`, `BAO_EXEC_AUTH`, `~/.config/bao-exec/{role_id,secret_id}`). If the read fails, investigate the integration gap rather than asking the user to paste secrets or run the command for you.
 
 | Variable | Contract |
 |---|---|
 | `KC_ADMIN_USERNAME` | Required, nonempty; `riri-agent` |
-| `KC_ADMIN_PASSWORD` | Required, nonempty; SOPS `keycloak_agent_password` |
+| `KC_ADMIN_PASSWORD` | Required, nonempty; the OpenBao field `keycloak_agent_password` |
 | `KC_HOST` | Optional; defaults to `https://keycloak.237575.xyz` |
 | `KC_TOKEN` | Set by the sourced helper after master-realm password grant using client `admin-cli` |
 
-```bash
-# Source only after credentials are supplied through the authorized local path.
-source /Users/mouriya/.claude/skills/keycloak/token.sh
-```
+The helper is sourced inside the `bao-exec` child shown above, which is the only place the two variables are set. Sourcing it directly in the agent's shell only works when that shell already holds both credentials, which is not the intended path.
 
 Stop on a nonzero source result. Missing env produces `KC_ADMIN_USERNAME and KC_ADMIN_PASSWORD must be set`; an empty/null token produces `Failed to obtain Keycloak admin token`. Inspect reachability, host/realm, credential source, and grant policy without echoing the password/token. A successful source permits the inspection request; it does not establish that the token has every admin permission. Treat token responses and shell traces as sensitive.
 

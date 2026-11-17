@@ -6,7 +6,7 @@ Prefer an existing `km -p <core>` command: it handles authentication and errors.
 
 1. Inspect installed CLI help for the requested operation before choosing REST. A JSON request is not inherently preferable to a supported CLI command.
 2. Establish the Core and resource owner from the authority table in `../SKILL.md`. For repo-backed Stacks, change `komodo/syncs/` and `stacks/` in the owning workload repo. The API is for inspection, authorized bounded runtime operations or a declared workflow's integration—not a second declaration store. A Stack with an empty repo and non-empty `file_contents` is not repo-declared; its fix is moving it into a workload repo, not editing it through the API.
-3. Determine the live Core version with `GetVersion` (both Cores are 2.2.0 at the time of writing), then use that version's schema: the `moghtech/komodo` release tag (e.g. `v2.2.0`, request types under `client/core/rs/src/api/`) or a matching local checkout. The official overview is [API and Clients](https://komo.do/docs/ecosystem/api); its linked reference and the demo instance track the latest release, so do not apply them to an older Core. Verify request type, params and response shape before writing a payload. Do not invent type names or copy a create/update config from another version.
+3. Determine the live Core version with `GetVersion` (both Cores run Komodo 2.3.4 at the time of writing; the `komodo-cli` 2.3.4 on this workstation has no generic read/write commands, so most gaps end here), then use that version's schema: the `moghtech/komodo` release tag (e.g. `v2.3.4`, request types under `client/core/rs/src/api/`) or a matching local checkout. The official overview is [API and Clients](https://komo.do/docs/ecosystem/api); its linked reference and the demo instance track the latest release, so do not apply them to an older Core. Verify request type, params and response shape before writing a payload. Do not invent type names or copy a create/update config from another version.
 4. Read current resource state and resolve IDs **on this Core**. For example, `ListServers` supplies Server IDs; confirm the target's name/host before using its ID in a Stack operation. Never reuse IDs across Cores.
 
 ## Make a read-only request
@@ -44,14 +44,9 @@ For a genuine CLI gap, prepare a JSON request file against the version-matched s
 
 Use the same credential-scoped request pattern above, replacing the path with the verified endpoint and using `--data-binary @"$request_file"` for the reviewed payload. Keep secrets out of payloads unless the authorized secret-injection path specifically requires them; such files must remain private and be cleaned up through that path. Do not construct a transcript-visible command containing a secret value.
 
-A supported CLI operation remains preferred even for Variables. For an authorized **nonsecret** value whose workflow permits a live update:
+A supported CLI operation remains preferred for anything the CLI covers; the API is for the gaps the CLI leaves.
 
-```bash
-# core, variable and value are established by the owning workflow.
-km -p "$core" update variable "$variable" "$value"
-```
-
-For durable workload Variables/secrets, follow the owning repo's sync workflow rather than hand-maintaining values through either interface.
+Workload container values are not one of those resources: a Stack that interpolates a value reads it from `kv/<owner>/<repo>/runtime` through its `compose_cmd_wrapper`, so the delivery path is an OpenBao write with an `admin` token plus `DeployStack`, never a Komodo resource written through `/write`. Non-secret defaults that the Stack declares itself stay in the Sync TOML `environment` block.
 
 ## Verify and recover
 
