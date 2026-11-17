@@ -37,10 +37,11 @@ IaC repo 都在 GitHub org `mouriya-devops`，本地 checkout 都在 `/Users/mou
 
 ## 跨 repo 不变量
 
-- 两个 repo 的 OpenTofu state 是不同对象：共用 Cloudflare R2 bucket `homelab-tf`，homelab-tf 用 key `<workspace>/terraform.tfstate`，pve-vctcn 用 `pve-vctcn/<workspace>/...`。PVE provider 凭据、各自的 SOPS 文件、Ansible inventory（仅 homelab-tf 有）互不共享。
+- 两个 repo 的 OpenTofu state 是不同对象：共用 Cloudflare R2 bucket `homelab-tf`，homelab-tf 用 key `<workspace>/terraform.tfstate`，pve-vctcn 用 `pve-vctcn/<workspace>/...`。PVE provider 凭据、各自的 OpenBao 路径与引导 SOPS 文件、Ansible inventory（仅 homelab-tf 有）互不共享。
 - homelab PVE 已入 NetBird mesh（`pve.mouriya.lan`），vctcn PVE（`192.99.9.212`）未入；不能从 guest 可达推断 PVE host 的状态。
 - GARM runner 经 NetBird mesh 伸进 homelab 做 CI/CD：控制器在 pve-vctcn VM 181，执行端是 VM 181 上的常驻 LXD，或常驻满时操作员笔记本上的边缘 Incus，arm64 job 则在 oracle-iac 的 `oracle-a1` 上的 Incus，各自经所在主机的 NetBird peer 出网。runner 在 homelab 侧所见的变更按对象归属：homelab DNS 记录归 homelab-tf；NetBird policy、ACL 与 nameserver group 是 NetBird SaaS dashboard/API 的 live 状态，两个 repo 都没有 IaC provider，改前先读 live policy，改动记录在对应 homelab-tf issue。runner workspace 在 pve-vctcn 不改变这些归属。
-- 根信任服务 Step-CA（CT 313）留在 homelab；vctcn 服务需要时经 NetBird 使用。OpenBao（CT 314）已退役停机。没有 homelab-tf issue 与设计，不把根信任外移。
+- 根信任服务 Step-CA（CT 313）留在 homelab；vctcn 服务需要时经 NetBird 使用。没有 homelab-tf issue 与设计，不把根信任外移。
+- OpenBao 是两边共用的凭据存储，两个节点各站一个：`homelab-bao1`（homelab-tf 的 CT 315）与 `vctcn-bao1`。agent 与工作站经 `bao-exec` 按路径读（`BAO_ADDR` 列表按序尝试），写入只用 `admin` token；只有「OpenBao 不可用时重建或修复它」所需的值留在 homelab-tf、pve-vctcn、pigsty 三个 repo 的引导 SOPS。访问失败的类别（`config`/`auth`/`path`/`addresses`）指向哪一个环节是确定的，不要改从别的来源取。
 
 ## 从 app 或 workload 上下文提基础设施需求
 
@@ -49,7 +50,7 @@ IaC repo 都在 GitHub org `mouriya-devops`，本地 checkout 都在 `/Users/mou
 - 可以做非机密调查，写 app 的运行契约，在 IaC repo 开 issue 并双向链接。
 - 不改 IaC 文件，不跑 apply/destroy、IaC playbook 或主机变更操作，不直接改 Proxmox、DNS、网络、存储、根信任或 Komodo 安装。
 
-先用归属判据把工作拆开：app 的 compose、镜像、Variable、发布归 km 与 workload repo，不开 IaC issue；只有机器、网络、DNS、公网入口、存储、根信任、Komodo 安装、或判据留在 IaC 的 app 才进 IaC issue。issue 按 `writing-issue` 写，至少包括：
+先用归属判据把工作拆开：app 的 compose、镜像、OpenBao 值、发布归 km 与 workload repo，不开 IaC issue；只有机器、网络、DNS、公网入口、存储、根信任、Komodo 安装、或判据留在 IaC 的 app 才进 IaC issue。issue 按 `writing-issue` 写，至少包括：
 
 - 驱动方：app repo、issue/PR 或用户请求；
 - 服务用途、入站调用方和流量形态、出站依赖；
