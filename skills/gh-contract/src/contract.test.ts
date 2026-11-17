@@ -133,10 +133,12 @@ describe("issue contract", () => {
     expect(row?.expect).toBe("exit 0");
   });
 
-  test("a library face is observed through a real entry: the driver form is gone", () => {
+  test("an issue that still says driver is read as 最薄入口, with a warning", () => {
     const text = standard({ faces: ["library"], form: "driver", rows: ["| 1 | library | 覆盖 结果 1：返回新字段 | 本地 | ok |"] });
-    expect(errors(text, true)).toContain("未知的测试形态「driver」，可选：e2e、集成、最薄入口");
-    expect(errors(text.replace("\ndriver\n", "\n最薄入口\n"), true)).toEqual([]);
+    const parsed = parseIssue(text, { repo, hasParent: true });
+    expect(parsed.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    expect(parsed.diagnostics.filter((d) => d.severity === "warn").length).toBe(1);
+    expect(parsed.value?.kind === "standard" ? parsed.value.form : null).toBe("最薄入口");
   });
 
   test("a no-code issue lists exact paths, never globs", () => {

@@ -147,6 +147,10 @@ function parseForm(sec: Section, d: Diagnostic[]): Form | null {
     return null;
   }
   const only = values[0] as { n: number; v: string };
+  if (only.v === "driver") {
+    d.push(warn(at(only.n), "测试形态 driver 已取消，按「最薄入口」读取：经消费它的真实入口观察；修订正文时改写"));
+    return "最薄入口";
+  }
   if (!isForm(only.v)) {
     d.push(err(at(only.n), `未知的测试形态「${only.v}」，可选：e2e、集成、最薄入口`));
     return null;
