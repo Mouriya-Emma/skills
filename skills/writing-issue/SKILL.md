@@ -67,7 +67,7 @@ description: 起草或修订单个 GitHub issue：问题与原因、责任定位
 
 ## 上下文
 
-- **Repo**: `owner/repo`
+- **Repo**: `owner/repo` <代码与 PR 所在的 repo；issue 开在别的 repo 时也写代码所在的这个，`ghc` 在它的缓冲分支里找 child 的 PR>
 - **Design doc / source**: <设计文档路径或 issue/PR 链接；没有时省略>
 - **Conventions**: <跨 repo 时明确遵从哪一份契约>
 - **Anchors**: <基准 `owner/repo@<sha>`；文件 + 符号 + 当前行为；实施前在当前 HEAD 核对>

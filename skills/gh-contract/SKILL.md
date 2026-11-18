@@ -29,7 +29,7 @@ description: ghc CLI：程序化读取与检查 GitHub issue/PR 内容——完�
 | `ghc merge-ready <PR> --issue <ref> --head <sha>` | 合并交付一个 issue 的 PR 之前：PR open 可合并、HEAD 未变、落在该去的分支、本 issue 的证据状态 success、有对当前输入有效的 review PASS |
 | `ghc merge-ready <树根> --tree` | 合并 tree PR 之前：剩余 child 都已合入缓冲分支、总体验收证据包齐全且采于缓冲分支当前提交、每个 repo 恰有一个合规的 tree PR；树根之外 repo 的 tree PR 先合并 |
 
-树的缓冲分支名固定为 `tree/<树根 owner>-<树根 repo>-<树根编号>`，`ghc` 据此检查树内 PR 的 base 与 tree PR 的 head。
+树的缓冲分支名固定为 `tree/<树根 owner>-<树根 repo>-<树根编号>`，`ghc` 据此检查树内 PR 的 base 与 tree PR 的 head。child 的 PR 在 issue 正文 `## 上下文` 的 `**Repo**` 所写的 repo 里找（缺省为 issue 所在 repo），所以 issue 与代码分处两个 repo 时这一行必须写代码所在的 repo。
 
 ## 证据的规矩
 

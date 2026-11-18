@@ -5,7 +5,7 @@ import { packComplete, parsePack, renderPack, toPack } from "./evidence/render.t
 import { clauseText } from "./fetch.ts";
 import { parseHeader, renderHeader } from "./gate.ts";
 import type { IssueData, PrData } from "./github.ts";
-import { parseIssue, type Row } from "./issue.ts";
+import { codeRepo, parseIssue, type Row } from "./issue.ts";
 import { checkPlacement, checkTreePr } from "./pr.ts";
 import type { Ref } from "./ref.ts";
 
@@ -199,6 +199,16 @@ describe("evidence pack", () => {
 
   test("an edited comment that lost its header is not a pack", () => {
     expect(parsePack("## 证据包\n\n| a | b |\n|---|---|\n")).toBeNull();
+  });
+});
+
+describe("code repo", () => {
+  test("the 上下文 Repo field names the repo whose buffer receives the PR; without it the issue's repo does", () => {
+    const body = (repoLine: string) => `## 目标\nx\n\n## 上下文\n\n${repoLine}\n- **Conventions**: x\n\n## 问题\nx`;
+    expect(codeRepo(body("- **Repo**: `acme/lib`（PR 开在这里）"), repo)).toEqual({ owner: "acme", name: "lib" });
+    expect(codeRepo(body("- **Repo**: acme/lib"), repo)).toEqual({ owner: "acme", name: "lib" });
+    expect(codeRepo(body("- **Design doc / source**: acme/lib#3"), repo)).toEqual(repo);
+    expect(codeRepo("## 目标\nx", repo)).toEqual(repo);
   });
 });
 

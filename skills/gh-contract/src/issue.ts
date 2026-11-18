@@ -13,7 +13,7 @@ import {
   type Role,
   warn,
 } from "./model.ts";
-import { parseRef, type Ref, type Repo, scanRefs } from "./ref.ts";
+import { parseRef, parseRepo, type Ref, type Repo, scanRefs } from "./ref.ts";
 
 export type Outcome = { readonly id: number; readonly text: string; readonly line: number };
 
@@ -334,6 +334,21 @@ export function parseIssue(text: string, ctx: IssueContext): Parsed<IssueBody> {
       return { value: { kind: "integration", outcomes, scope, rows, composed, contractRefs, deps }, diagnostics: d };
     }
   }
+}
+
+/**
+ * The repo that carries the issue's code, from `## 上下文` → `**Repo**`; the issue's own repo when the field is absent.
+ * An issue may live in one repo while its PR goes to another (a coordination repo hosting issues for code repos).
+ */
+export function codeRepo(text: string, repo: Repo): Repo {
+  const sec = findSection(parseDoc(text), "上下文");
+  if (sec === undefined) return repo;
+  for (const b of bullets(sec.lines)) {
+    const m = /^\*\*Repo\*\*\s*[：:]\s*`?([^`\s（(]+)/.exec(b.text);
+    const declared = m === null ? null : parseRepo(m[1] as string);
+    if (declared !== null) return declared;
+  }
+  return repo;
 }
 
 /** The umbrella's pointer to its integration issue (`## 总体验收` section). */

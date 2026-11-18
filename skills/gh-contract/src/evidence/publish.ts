@@ -2,7 +2,7 @@
 
 import { getIssue, getPr, type IssueData, type MergedPr, mergedPrsInto, objectKind, type PrData, postComment, setStatus } from "../github.ts";
 import { checkoutAt, defaultBranchRef } from "../git.ts";
-import { type IssueBody, parseIssue } from "../issue.ts";
+import { codeRepo, type IssueBody, parseIssue } from "../issue.ts";
 import { type Diagnostic, err } from "../model.ts";
 import { checkBody, checkIdentity, checkNoCode, checkPlacement, firstLine, type NoCodeReport } from "../pr.ts";
 import { UsageError } from "../proc.ts";
@@ -44,14 +44,15 @@ export async function resolve(ref: Ref): Promise<Target> {
   return { kind: "issue", issue, body: parsedBody(issue) };
 }
 
-/** The newest PR merged into the tree's buffer branch that delivers `child`, if any. */
+/** The newest PR merged into the tree's buffer branch of the child's code repo that delivers `child`, if any. */
 export async function bufferMerge(child: IssueData, cache: Map<string, MergedPr[]>): Promise<MergedPr | null> {
   if (child.parent === null) return null;
   const branch = treeBranch(child.parent);
-  const key = `${repoKey(child.ref.repo)} ${branch}`;
+  const repo = codeRepo(child.body, child.ref.repo);
+  const key = `${repoKey(repo)} ${branch}`;
   let prs = cache.get(key);
   if (prs === undefined) {
-    prs = await mergedPrsInto(child.ref.repo, branch);
+    prs = await mergedPrsInto(repo, branch);
     cache.set(key, prs);
   }
   const mine = prs.filter((p) => {
