@@ -6,8 +6,23 @@ export type Face = (typeof FACES)[number];
 export const FORMS = ["e2e", "集成", "最薄入口"] as const;
 export type Form = (typeof FORMS)[number];
 
-export const ROLES = ["正例", "负例", "保持"] as const;
-export type Role = (typeof ROLES)[number];
+/** What an expected result does to the product; it picks the evidence template. */
+export const KINDS = ["改", "新", "删", "保持"] as const;
+export type Kind = (typeof KINDS)[number];
+
+/** The evidence template a kind uses, as shown to readers. */
+export function templateOf(kind: Kind): string {
+  switch (kind) {
+    case "改":
+      return "改功能（前后对比）";
+    case "新":
+      return "新功能";
+    case "删":
+      return "删功能";
+    case "保持":
+      return "保持不变（前后对比）";
+  }
+}
 
 export type Family = "应用" | "基础设施" | "agent 配置";
 
@@ -44,7 +59,7 @@ export function formsFor(face: Face): readonly Form[] {
 
 export const isFace = (s: string): s is Face => (FACES as readonly string[]).includes(s);
 export const isForm = (s: string): s is Form => (FORMS as readonly string[]).includes(s);
-export const isRole = (s: string): s is Role => (ROLES as readonly string[]).includes(s);
+export const isKind = (s: string): s is Kind => (KINDS as readonly string[]).includes(s);
 
 export type Severity = "error" | "warn";
 export type Diagnostic = { readonly severity: Severity; readonly where: string; readonly message: string };

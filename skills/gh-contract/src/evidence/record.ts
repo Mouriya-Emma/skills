@@ -4,8 +4,9 @@ import { mkdir, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { arr, bool, field, num, type Obj, obj, str } from "../json.ts";
+import { type Face, isFace, isKind, type Kind } from "../model.ts";
 import { type Ref, refKey } from "../ref.ts";
-import { type Step, storedStep } from "../requirements.ts";
+import { isStep, type Step } from "../requirements.ts";
 
 export type Completion =
   | { readonly kind: "exited"; readonly code: number }
@@ -37,15 +38,19 @@ export type CheckoutState = {
 export type EvidenceRecord = {
   readonly id: string;
   readonly issue: string;
-  readonly rows: readonly number[];
+  /** The expected results this record is evidence for, each with the wording it was taken against. */
+  readonly results: readonly { readonly id: number; readonly digest: string }[];
+  readonly face: Face;
+  /** The template the collector used; the issue's tag on the result is a reference and may differ. */
+  readonly kind: Kind;
   readonly step: Step;
+  /** What a reviewer can read off this record, in the collector's words. */
+  readonly shows: string;
   readonly capture: Capture;
   readonly startedAt: string;
   readonly endedAt: string;
   readonly checkouts: readonly CheckoutState[];
   readonly attachments: readonly Attachment[];
-  /** Issue body revision the record was taken against. */
-  readonly issueRev: string;
 };
 
 export function storeDir(issue: Ref): string {
@@ -96,14 +101,23 @@ function parseCapture(o: Obj): Capture {
 
 export function parseRecord(v: unknown): EvidenceRecord {
   const o = obj(v, "record");
-  const stepText = str(field(o, "step"), "record.step");
-  const step = storedStep(stepText);
-  if (step === null) throw new Error(`record: unknown step ${stepText}`);
+  const step = str(field(o, "step"), "record.step");
+  if (!isStep(step)) throw new Error(`record: unknown step ${step}`);
+  const face = str(field(o, "face"), "record.face");
+  if (!isFace(face)) throw new Error(`record: unknown face ${face}`);
+  const kind = str(field(o, "kind"), "record.kind");
+  if (!isKind(kind)) throw new Error(`record: unknown kind ${kind}`);
   return {
     id: str(field(o, "id"), "record.id"),
     issue: str(field(o, "issue"), "record.issue"),
-    rows: arr(field(o, "rows"), "record.rows").map((x) => num(x, "row")),
+    results: arr(field(o, "results"), "record.results").map((x) => {
+      const ro = obj(x, "result");
+      return { id: num(field(ro, "id"), "result.id"), digest: str(field(ro, "digest"), "result.digest") };
+    }),
+    face,
+    kind,
     step,
+    shows: str(field(o, "shows"), "record.shows"),
     capture: parseCapture(obj(field(o, "capture"), "capture")),
     startedAt: str(field(o, "startedAt"), "record.startedAt"),
     endedAt: str(field(o, "endedAt"), "record.endedAt"),
@@ -126,7 +140,6 @@ export function parseRecord(v: unknown): EvidenceRecord {
         bytes: num(field(ao, "bytes"), "attachment.bytes"),
       };
     }),
-    issueRev: str(field(o, "issueRev"), "record.issueRev"),
   };
 }
 
@@ -142,7 +155,10 @@ export async function loadRecords(issue: Ref): Promise<{ record: EvidenceRecord;
   for (const name of names.sort()) {
     const file = Bun.file(join(root, name, "record.json"));
     if (!(await file.exists())) continue; // a run still in progress or aborted before saving
-    const record = parseRecord(await file.json());
+    const json: unknown = await file.json();
+    // Records taken against acceptance rows predate result-keyed evidence and prove nothing about a result.
+    if (typeof json === "object" && json !== null && "rows" in json) continue;
+    const record = parseRecord(json);
     if (record.issue === refKey(issue)) out.push({ record, dir: join(root, name) });
   }
   return out;

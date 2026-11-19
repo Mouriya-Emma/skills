@@ -1,33 +1,14 @@
 // Issue body contract: parse the markdown an author wrote into a typed body, collecting line-anchored diagnostics.
 
-import { bullets, type Doc, findSection, firstTable, type Line, nonEmpty, parseDoc, type Section } from "./markdown.ts";
-import {
-  type Diagnostic,
-  err,
-  type Face,
-  type Form,
-  familyOf,
-  formsFor,
-  isFace,
-  isForm,
-  type Role,
-  warn,
-} from "./model.ts";
+import { bullets, type Doc, findSection, type Line, nonEmpty, parseDoc, type Section } from "./markdown.ts";
+import { type Diagnostic, err, type Face, type Form, familyOf, formsFor, isFace, isForm, isKind, type Kind, warn } from "./model.ts";
 import { parseRef, parseRepo, type Ref, type Repo, scanRefs } from "./ref.ts";
 
-export type Outcome = { readonly id: number; readonly text: string; readonly line: number };
-
-export type Row = {
-  readonly id: number;
-  readonly line: number;
-  readonly face: Face;
-  readonly covers: readonly number[];
-  readonly role: Role;
-  readonly via: readonly Ref[];
-  readonly check: string;
-  readonly env: string;
-  readonly expect: string;
-};
+/** One expected result. `digest` identifies its wording: evidence taken for one wording does not prove another. */
+export type Outcome = { readonly id: number; readonly text: string; readonly line: number; readonly digest: string };
+/** A result that owes evidence: the kind the author expects (a reference, the collector may record another), and for an
+ * integration issue the children its path passes through. */
+export type TypedOutcome = Outcome & { readonly kind: Kind; readonly via: readonly Ref[] };
 
 export type ContractRef = { readonly issue: Ref; readonly commentId: number; readonly clause: number; readonly line: number };
 export type Deps = { readonly dependsOn: readonly Ref[]; readonly blocks: readonly Ref[] };
@@ -36,10 +17,9 @@ export type Scope = { readonly faces: readonly Face[]; readonly packReason: stri
 export type IssueBody =
   | {
       readonly kind: "standard";
-      readonly outcomes: readonly Outcome[];
+      readonly outcomes: readonly TypedOutcome[];
       readonly scope: Scope;
       readonly form: Form;
-      readonly rows: readonly Row[];
       readonly contractRefs: readonly ContractRef[];
       readonly deps: Deps;
     }
@@ -52,9 +32,8 @@ export type IssueBody =
     }
   | {
       readonly kind: "integration";
-      readonly outcomes: readonly Outcome[];
+      readonly outcomes: readonly TypedOutcome[];
       readonly scope: Scope;
-      readonly rows: readonly Row[];
       readonly composed: readonly Ref[];
       readonly contractRefs: readonly ContractRef[];
       readonly deps: Deps;
@@ -68,9 +47,9 @@ const at = (line: number): string => `body:${line}`;
 const KIND_MARKERS: Record<string, IssueKind> = { 无代码变更: "no-code", 总体验收: "integration" };
 
 const REQUIRED: Record<IssueKind, readonly string[]> = {
-  standard: ["目标", "问题", "责任与必要决策", "预期结果", "范围边界", "影响范围", "测试形态", "验收标准"],
-  "no-code": ["目标", "问题", "范围", "预期结果", "范围边界"],
-  integration: ["目标", "组合对象", "影响范围", "预期结果", "验收标准", "依赖关系"],
+  standard: ["现场", "目标", "原因", "责任与必要决策", "预期结果", "范围边界", "影响范围", "测试形态"],
+  "no-code": ["现场", "目标", "范围", "预期结果", "范围边界"],
+  integration: ["目标", "组合对象", "影响范围", "预期结果", "依赖关系"],
 };
 
 export function issueKindOf(doc: Doc): { kind: IssueKind; diagnostics: Diagnostic[] } {
@@ -87,20 +66,70 @@ export function issueKindOf(doc: Doc): { kind: IssueKind; diagnostics: Diagnosti
   return { kind, diagnostics: [] };
 }
 
-function parseOutcomes(sec: Section, d: Diagnostic[]): Outcome[] {
-  const out: Outcome[] = [];
-  for (const b of bullets(sec.lines)) {
-    const m = /^结果\s*(\d+)\s*[：:]\s*(.+)$/.exec(b.text);
+function digestOf(parts: readonly string[]): string {
+  return new Bun.CryptoHasher("sha256").update(parts.map((p) => p.replace(/\s+/g, " ").trim()).join("\n")).digest("hex").slice(0, 12);
+}
+
+/** One digest for a whole result list: a published evidence pack names the wording it was taken for. */
+export const outcomesDigest = (outcomes: readonly Outcome[]): string => digestOf(outcomes.map((o) => `${o.id} ${o.digest}`));
+
+/** What happened that raised the issue. The record must be the thing itself, not a retelling. */
+function checkScene(sec: Section, d: Diagnostic[]): void {
+  const lines = sec.lines.map((l) => l.text);
+  if (lines.every((t) => t.trim() === "")) {
+    d.push(err(at(sec.line), "现场是空的：写提出这条 issue 时已经发生的事"));
+    return;
+  }
+  const verbatim = lines.some((t) => /^\s*(```|~~~)/.test(t) || /^\s*>/.test(t) || /!\[[^\]]*\]\(|<img\s/.test(t) || /https?:\/\//.test(t));
+  if (!verbatim) d.push(err(at(sec.line), "现场没有原样记录：贴出当时的输出、日志或截图，或引用原文并给出链接"));
+}
+
+const OUTCOME_RE = /^结果\s*(\d+)\s*(?:\[([^\]]*)\])?\s*(?:[；;]\s*经由\s+([^：:]+?))?\s*[：:]\s*(.+)$/;
+
+type RawOutcome = Outcome & { readonly kindText: string | null; readonly viaText: string | null };
+
+function parseOutcomes(sec: Section, d: Diagnostic[]): RawOutcome[] {
+  const out: RawOutcome[] = [];
+  const tops = bullets(sec.lines);
+  for (const [i, b] of tops.entries()) {
+    const next = tops[i + 1]?.n ?? Number.POSITIVE_INFINITY;
+    // Sub-bullets and wrapped lines belong to the result: its wording includes them.
+    const rest = sec.lines.filter((l) => l.n > b.n && l.n < next && l.text.trim() !== "").map((l) => l.text);
+    const m = OUTCOME_RE.exec(b.text);
     if (m === null) {
-      d.push(err(at(b.n), "预期结果的条目必须写成「- 结果 N：…」"));
+      d.push(err(at(b.n), "预期结果的条目必须写成「- 结果 N [改|新|删|保持]：…」"));
       continue;
     }
     const id = Number(m[1]);
     if (out.some((o) => o.id === id)) d.push(err(at(b.n), `结果 ${id} 编号重复`));
-    out.push({ id, text: (m[2] as string).trim(), line: b.n });
+    const kindText = m[2]?.trim() ?? null;
+    const viaText = m[3]?.trim() ?? null;
+    const text = (m[4] as string).trim();
+    out.push({ id, text, line: b.n, digest: digestOf([kindText ?? "", viaText ?? "", text, ...rest]), kindText, viaText });
   }
-  if (out.length === 0) d.push(err(at(sec.line), "预期结果至少要有一条「- 结果 N：…」"));
+  if (out.length === 0) d.push(err(at(sec.line), "预期结果至少要有一条「- 结果 N [改|新|删|保持]：…」"));
   return out;
+}
+
+/** Results of an issue that owes evidence; null when any of them lacks a usable kind, since evidence cannot be planned for it. */
+function typed(raw: readonly RawOutcome[], repo: Repo, kind: "standard" | "integration", d: Diagnostic[]): TypedOutcome[] | null {
+  const out: TypedOutcome[] = [];
+  let ok = true;
+  for (const o of raw) {
+    if (o.kindText === null || !isKind(o.kindText)) {
+      d.push(err(at(o.line), `结果 ${o.id} 要标类型：[改]、[新]、[删] 或 [保持]${o.kindText === null ? "" : `（现在是 [${o.kindText}]）`}`));
+      ok = false;
+      continue;
+    }
+    const via = o.viaText === null ? [] : scanRefs(o.viaText, repo);
+    if (o.viaText !== null && via.length === 0) d.push(err(at(o.line), `结果 ${o.id} 的「经由」没有可解析的 issue 引用`));
+    if (kind === "standard" && o.viaText !== null) d.push(err(at(o.line), `结果 ${o.id}：只有总体验收 issue 的结果写「经由」`));
+    if (kind === "integration" && via.length === 0 && o.viaText === null) {
+      d.push(err(at(o.line), `结果 ${o.id} 缺少「经由」：总体验收的每条结果写明经过哪些 child`));
+    }
+    out.push({ id: o.id, text: o.text, line: o.line, digest: o.digest, kind: o.kindText, via });
+  }
+  return ok ? out : null;
 }
 
 function parseScope(sec: Section, d: Diagnostic[]): Scope {
@@ -147,74 +176,11 @@ function parseForm(sec: Section, d: Diagnostic[]): Form | null {
     return null;
   }
   const only = values[0] as { n: number; v: string };
-  if (only.v === "driver") {
-    d.push(warn(at(only.n), "测试形态 driver 已取消，按「最薄入口」读取：经消费它的真实入口观察；修订正文时改写"));
-    return "最薄入口";
-  }
   if (!isForm(only.v)) {
     d.push(err(at(only.n), `未知的测试形态「${only.v}」，可选：e2e、集成、最薄入口`));
     return null;
   }
   return only.v;
-}
-
-const ROW_HEADER = ["#", "面", "Check", "Env", "Expect"];
-/** Tables written while rows still carried a pre-written command; those two columns are not read. */
-const ROW_HEADER_WITH_COMMAND = ["#", "面", "Dimension", "Check", "Command", "Env", "Expect"];
-
-const CHECK_RE = /^覆盖\s*((?:结果\s*\d+\s*[、,，]?\s*)+)(?:\[(正例|负例|保持)\])?\s*(?:[；;]\s*经由\s+([^：:]+?))?\s*[：:]/;
-
-function parseRows(sec: Section, repo: Repo, kind: IssueKind, d: Diagnostic[]): Row[] {
-  const table = firstTable(sec.lines);
-  if (table === null) {
-    d.push(err(at(sec.line), "验收标准缺少表格"));
-    return [];
-  }
-  const header = table.header.join("|");
-  const withCommand = header === ROW_HEADER_WITH_COMMAND.join("|");
-  if (!withCommand && header !== ROW_HEADER.join("|")) {
-    d.push(err(at(table.headerLine), `验收表的表头必须是 | ${ROW_HEADER.join(" | ")} |`));
-    return [];
-  }
-  if (withCommand) {
-    d.push(warn(at(table.headerLine), `Dimension 与 Command 列不再读取：怎样观察由采集证据的人决定；修订正文时表头改为 | ${ROW_HEADER.join(" | ")} |`));
-  }
-  const width = table.header.length;
-  const rows: Row[] = [];
-  for (const r of table.rows) {
-    if (r.cells.length < width) {
-      d.push(err(at(r.n), `这一行只有 ${r.cells.length} 格，表头有 ${width} 列`));
-      continue;
-    }
-    const cells = withCommand ? [r.cells[0], r.cells[1], r.cells[3], r.cells[5], r.cells[6]] : r.cells;
-    const [idText, faceText, check, env, expect] = cells as [string, string, string, string, string];
-    const id = Number(idText);
-    if (!Number.isInteger(id) || id <= 0) {
-      d.push(err(at(r.n), `行号「${idText}」不是正整数`));
-      continue;
-    }
-    if (rows.some((x) => x.id === id)) d.push(err(at(r.n), `验收行 #${id} 编号重复`));
-    if (!isFace(faceText)) {
-      d.push(err(at(r.n), `#${id} 的面「${faceText}」未知`));
-      continue;
-    }
-    const m = CHECK_RE.exec(check);
-    let covers: number[] = [];
-    let role: Role = "正例";
-    let via: Ref[] = [];
-    if (m !== null) {
-      covers = [...(m[1] as string).matchAll(/\d+/g)].map((x) => Number(x[0]));
-      role = (m[2] as Role | undefined) ?? "正例";
-      via = m[3] === undefined ? [] : scanRefs(m[3], repo);
-      if (m[3] !== undefined && via.length === 0) d.push(err(at(r.n), `#${id} 的「经由」没有可解析的 issue 引用`));
-      if (kind !== "integration" && via.length > 0) d.push(err(at(r.n), `#${id}：只有总体验收 issue 的行写「经由」`));
-    } else if (/^覆盖/.test(check)) {
-      d.push(err(at(r.n), `#${id} 的 Check 写法应为「覆盖 结果 N[、结果 M][负例|保持]：…」`));
-    }
-    rows.push({ id, line: r.n, face: faceText, covers, role, via, check, env, expect });
-  }
-  if (rows.length === 0) d.push(err(at(sec.line), "验收表没有任何行"));
-  return rows;
 }
 
 function parseDeps(sec: Section | undefined, repo: Repo): Deps {
@@ -253,26 +219,6 @@ function parsePaths(sec: Section, d: Diagnostic[]): { path: string; line: number
   return out;
 }
 
-function checkCoverage(outcomes: readonly Outcome[], rows: readonly Row[], d: Diagnostic[]): void {
-  for (const r of rows) {
-    for (const c of r.covers) {
-      if (!outcomes.some((o) => o.id === c)) d.push(err(at(r.line), `#${r.id} 覆盖的结果 ${c} 不存在`));
-    }
-  }
-  for (const o of outcomes) {
-    if (!rows.some((r) => r.covers.includes(o.id))) d.push(err(at(o.line), `结果 ${o.id} 没有任何验收行覆盖`));
-  }
-}
-
-function checkFaces(scope: Scope, rows: readonly Row[], d: Diagnostic[]): void {
-  for (const r of rows) {
-    if (!scope.faces.includes(r.face)) d.push(err(at(r.line), `#${r.id} 的面 ${r.face} 不在影响范围里`));
-  }
-  for (const f of scope.faces) {
-    if (!rows.some((r) => r.face === f)) d.push(err("影响范围", `面 ${f} 没有任何验收行`));
-  }
-}
-
 export type IssueContext = { readonly repo: Repo; readonly hasParent: boolean };
 
 export function parseIssue(text: string, ctx: IssueContext): Parsed<IssueBody> {
@@ -282,17 +228,25 @@ export function parseIssue(text: string, ctx: IssueContext): Parsed<IssueBody> {
   for (const title of REQUIRED[k.kind]) {
     if (findSection(doc, title) === undefined) d.push(err("body", `缺少「## ${title}」段`));
   }
+  if (findSection(doc, "验收标准") !== undefined) {
+    d.push(err("body", "issue 不写「## 验收标准」：怎样观察由采集证据的人在实现后决定，证据挂在预期结果上"));
+  }
+  const sceneSec = findSection(doc, "现场");
+  if (sceneSec !== undefined) checkScene(sceneSec, d);
   const allLines = [...doc.preamble, ...doc.sections.flatMap((s) => [{ n: s.line, text: s.title }, ...s.lines])];
   const contractRefs = parseContractRefs(allLines, ctx.repo);
   const deps = parseDeps(findSection(doc, "依赖关系"), ctx.repo);
   const outSec = findSection(doc, "预期结果");
-  const outcomes = outSec === undefined ? [] : parseOutcomes(outSec, d);
+  const raw = outSec === undefined ? [] : parseOutcomes(outSec, d);
 
   switch (k.kind) {
     case "no-code": {
       const pathsSec = findSection(doc, "范围");
       const paths = pathsSec === undefined ? [] : parsePaths(pathsSec, d);
-      if (findSection(doc, "验收标准") !== undefined) d.push(err("body", "无代码变更 issue 不写验收标准表"));
+      for (const o of raw) {
+        if (o.kindText !== null || o.viaText !== null) d.push(err(at(o.line), `结果 ${o.id}：无代码变更 issue 的结果不标类型，也不写「经由」`));
+      }
+      const outcomes = raw.map((o) => ({ id: o.id, text: o.text, line: o.line, digest: o.digest }));
       return { value: { kind: "no-code", outcomes, paths, contractRefs, deps }, diagnostics: d };
     }
     case "standard": {
@@ -300,18 +254,15 @@ export function parseIssue(text: string, ctx: IssueContext): Parsed<IssueBody> {
       const scope = scopeSec === undefined ? { faces: [], packReason: null } : parseScope(scopeSec, d);
       const formSec = findSection(doc, "测试形态");
       const form = formSec === undefined ? null : parseForm(formSec, d);
-      const rowsSec = findSection(doc, "验收标准");
-      const rows = rowsSec === undefined ? [] : parseRows(rowsSec, ctx.repo, "standard", d);
-      checkCoverage(outcomes, rows, d);
-      checkFaces(scope, rows, d);
+      const outcomes = typed(raw, ctx.repo, "standard", d);
       if (form !== null) {
         if (!ctx.hasParent && form !== "e2e") d.push(err("测试形态", `不在 issue 树里的 issue 只能是 e2e（当前 ${form}）：没有总体验收接手`));
         for (const f of scope.faces) {
           if (!formsFor(f).includes(form)) d.push(err("测试形态", `面 ${f} 不允许测试形态 ${form}，可选：${formsFor(f).join("、")}`));
         }
       }
-      if (form === null) return { value: null, diagnostics: d };
-      return { value: { kind: "standard", outcomes, scope, form, rows, contractRefs, deps }, diagnostics: d };
+      if (form === null || outcomes === null) return { value: null, diagnostics: d };
+      return { value: { kind: "standard", outcomes, scope, form, contractRefs, deps }, diagnostics: d };
     }
     case "integration": {
       const scopeSec = findSection(doc, "影响范围");
@@ -324,14 +275,9 @@ export function parseIssue(text: string, ctx: IssueContext): Parsed<IssueBody> {
       const compSec = findSection(doc, "组合对象");
       const composed = compSec === undefined ? [] : bullets(compSec.lines).flatMap((b) => scanRefs(b.text, ctx.repo).slice(0, 1));
       if (compSec !== undefined && composed.length === 0) d.push(err(at(compSec.line), "组合对象至少列出一个 issue 引用"));
-      const rowsSec = findSection(doc, "验收标准");
-      const rows = rowsSec === undefined ? [] : parseRows(rowsSec, ctx.repo, "integration", d);
-      checkCoverage(outcomes, rows, d);
-      checkFaces(scope, rows, d);
-      for (const r of rows) {
-        if (r.via.length === 0) d.push(err(at(r.line), `#${r.id} 缺少「经由」：总体验收的每行写明经过哪些 child`));
-      }
-      return { value: { kind: "integration", outcomes, scope, rows, composed, contractRefs, deps }, diagnostics: d };
+      const outcomes = typed(raw, ctx.repo, "integration", d);
+      if (outcomes === null) return { value: null, diagnostics: d };
+      return { value: { kind: "integration", outcomes, scope, composed, contractRefs, deps }, diagnostics: d };
     }
   }
 }

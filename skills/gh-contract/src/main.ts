@@ -18,8 +18,9 @@ const HELP = `ghc — GitHub issue/PR 内容契约
   ghc fetch <ref> [--out DIR]                 完整抓取 issue/PR 到本地（默认 /tmp/ghc/<owner>-<repo>-<N>）
   ghc lint <ref> [--tree]                     检查 issue / PR / 整棵 issue 树
   ghc ev plan <issue>                         列出该 issue 要采集的证据
-  ghc ev run <issue> --row N[,M] [--step S] [--artifacts DIR] [--checkout PATH]... [--timeout SEC] -- <command>
-  ghc ev attach <issue> --row N[,M] [--step S] [--checkout PATH]... <image|dir>...
+  ghc ev run <issue> --result N[,M] --shows "<看点>" [--face F] [--kind 改|新|删|保持] [--step S]
+             [--artifacts DIR] [--checkout PATH]... [--timeout SEC] -- <command>
+  ghc ev attach <issue> --result N[,M] --shows "<看点>" [--face F] [--kind 改|新|删|保持] [--step S] [--checkout PATH]... <image|dir>...
   ghc ev check <issue|PR>                     证据是否齐全（issue：对当前检出 HEAD；PR：对 PR HEAD）
   ghc ev publish <PR|总体验收 issue>          发布证据包 comment，并写 evidence/<issue> 状态
   ghc gate header <PR> --result PASS|FAIL@GateN [--design REF]
@@ -53,14 +54,28 @@ function parseFlags(args: readonly string[], valued: readonly string[], booleans
 
 const one = (f: Flags, k: string): string | null => f.values.get(k)?.at(-1) ?? null;
 
-function rowsOf(f: Flags): number[] {
-  const v = one(f, "--row");
-  if (v === null) throw new UsageError("缺少 --row");
+function resultsOf(f: Flags): number[] {
+  const v = one(f, "--result");
+  if (v === null) throw new UsageError("缺少 --result");
   return v.split(",").map((x) => {
     const n = Number(x.trim());
-    if (!Number.isInteger(n) || n <= 0) throw new UsageError(`--row ${v}：行号必须是正整数`);
+    if (!Number.isInteger(n) || n <= 0) throw new UsageError(`--result ${v}：结果编号必须是正整数`);
     return n;
   });
+}
+
+const CAPTURE_FLAGS = ["--result", "--face", "--kind", "--step", "--shows", "--checkout"];
+
+function captureOptions(f: Flags) {
+  return {
+    issue: parseRefArg(f.positional[0], "issue"),
+    results: resultsOf(f),
+    face: one(f, "--face"),
+    kind: one(f, "--kind"),
+    step: one(f, "--step"),
+    shows: one(f, "--shows"),
+    checkouts: f.values.get("--checkout") ?? [],
+  };
 }
 
 async function main(argv: readonly string[]): Promise<number> {
@@ -88,29 +103,15 @@ async function main(argv: readonly string[]): Promise<number> {
           return 0;
         }
         case "run": {
-          const f = parseFlags(rest, ["--row", "--step", "--artifacts", "--checkout", "--timeout"], []);
+          const f = parseFlags(rest, [...CAPTURE_FLAGS, "--artifacts", "--timeout"], []);
           const t = one(f, "--timeout");
           const timeout = t === null ? null : Number(t);
           if (timeout !== null && (!Number.isFinite(timeout) || timeout <= 0)) throw new UsageError("--timeout 必须是正数秒");
-          return evRun({
-            issue: parseRefArg(f.positional[0], "issue"),
-            rows: rowsOf(f),
-            step: one(f, "--step"),
-            checkouts: f.values.get("--checkout") ?? [],
-            artifacts: one(f, "--artifacts"),
-            timeoutSeconds: timeout,
-            argv: f.rest,
-          });
+          return evRun({ ...captureOptions(f), artifacts: one(f, "--artifacts"), timeoutSeconds: timeout, argv: f.rest });
         }
         case "attach": {
-          const f = parseFlags(rest, ["--row", "--step", "--checkout"], []);
-          await evAttach({
-            issue: parseRefArg(f.positional[0], "issue"),
-            rows: rowsOf(f),
-            step: one(f, "--step"),
-            checkouts: f.values.get("--checkout") ?? [],
-            files: f.positional.slice(1),
-          });
+          const f = parseFlags(rest, CAPTURE_FLAGS, []);
+          await evAttach({ ...captureOptions(f), files: f.positional.slice(1) });
           return 0;
         }
         case "check":

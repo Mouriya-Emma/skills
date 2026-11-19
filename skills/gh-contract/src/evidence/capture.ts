@@ -3,10 +3,10 @@
 import { createWriteStream } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { extname, join, resolve } from "node:path";
-import { getIssue, type IssueData } from "../github.ts";
+import { getIssue } from "../github.ts";
 import { type Checkout, checkoutAt, headOf, isClean } from "../git.ts";
-import { type IssueBody, parseIssue, type Row } from "../issue.ts";
-import { type Form, IMAGE_TYPES } from "../model.ts";
+import { type IssueBody, parseIssue, type TypedOutcome } from "../issue.ts";
+import { type Face, IMAGE_TYPES, isFace, isKind, KINDS, type Kind } from "../model.ts";
 import { UsageError } from "../proc.ts";
 import { type Ref, type Repo, refKey, repoKey } from "../ref.ts";
 import { defaultStep, isStep, requirementFor, type Step } from "../requirements.ts";
@@ -15,12 +15,24 @@ import { type Attachment, type CheckoutState, type Completion, type EvidenceReco
 
 export type CaptureOptions = {
   readonly issue: Ref;
-  readonly rows: readonly number[];
+  readonly results: readonly number[];
+  readonly face: string | null;
+  readonly kind: string | null;
   readonly step: string | null;
+  readonly shows: string | null;
   readonly checkouts: readonly string[];
 };
 
-type Target = { issueData: IssueData; body: IssueBody & { kind: "standard" | "integration" }; rows: Row[]; step: Step; form: Form };
+type Target = {
+  readonly body: IssueBody & { kind: "standard" | "integration" };
+  readonly outcomes: readonly TypedOutcome[];
+  readonly face: Face;
+  readonly kind: Kind;
+  readonly step: Step;
+  readonly shows: string;
+};
+
+const stepsText = (face: Face, kind: Kind): string => requirementFor(face, kind).steps.map((s) => s.step).join(" → ");
 
 async function resolveTarget(o: CaptureOptions): Promise<Target> {
   const issueData = await getIssue(o.issue);
@@ -28,31 +40,48 @@ async function resolveTarget(o: CaptureOptions): Promise<Target> {
   const body = parsed.value;
   if (body === null) throw new UsageError(`${refKey(o.issue)} 的正文不合契约，先跑 ghc lint ${refKey(o.issue)}`);
   if (body.kind === "no-code") throw new UsageError(`${refKey(o.issue)} 是无代码变更 issue，不采集运行证据`);
-  const form: Form = body.kind === "standard" ? body.form : "e2e";
-  if (o.rows.length === 0) throw new UsageError("--row 至少给一个验收行号");
-  const rows = o.rows.map((n) => {
-    const r = body.rows.find((x) => x.id === n);
-    if (r === undefined) throw new UsageError(`${refKey(o.issue)} 没有验收行 #${n}`);
+  if (o.results.length === 0) throw new UsageError("--result 至少给一个结果编号");
+  const outcomes = o.results.map((n) => {
+    const r = body.outcomes.find((x) => x.id === n);
+    if (r === undefined) throw new UsageError(`${refKey(o.issue)} 没有结果 ${n}`);
     return r;
   });
+  const shows = o.shows?.trim() ?? "";
+  if (shows === "") throw new UsageError("缺少 --shows：用一句话写明 reviewer 能从这条证据里看出什么");
+  let face: Face;
+  if (o.face === null) {
+    const only = body.scope.faces[0];
+    if (body.scope.faces.length !== 1 || only === undefined) throw new UsageError(`这个 issue 声明了多个面，需要指定 --face：${body.scope.faces.join("、")}`);
+    face = only;
+  } else {
+    if (!isFace(o.face) || !body.scope.faces.includes(o.face)) throw new UsageError(`--face ${o.face} 不在 issue 的影响范围里：${body.scope.faces.join("、")}`);
+    face = o.face;
+  }
+  let kind: Kind;
+  if (o.kind === null) {
+    const tagged = [...new Set(outcomes.map((x) => x.kind))];
+    const only = tagged[0];
+    if (tagged.length !== 1 || only === undefined) {
+      throw new UsageError(`这些结果在 issue 里标的类型不同（${outcomes.map((x) => `结果 ${x.id} [${x.kind}]`).join("、")}）：分开采集，或用 --kind 指定`);
+    }
+    kind = only;
+  } else {
+    if (!isKind(o.kind)) throw new UsageError(`未知的 --kind ${o.kind}，可选：${KINDS.join("、")}`);
+    kind = o.kind;
+  }
   let step: Step;
   if (o.step === null) {
-    const defaults = [...new Set(rows.map((r) => defaultStep(r.face, form)))];
-    const only = defaults[0];
-    if (defaults.length !== 1 || only === null || only === undefined) {
-      throw new UsageError(`这些行需要指定 --step：${rows.map((r) => `#${r.id} ${r.face}: ${requirementFor(r.face, form).steps.map((s) => s.step).join(" → ")}`).join("；")}`);
-    }
+    const only = defaultStep(face, kind);
+    if (only === null) throw new UsageError(`${face} 面的 [${kind}] 结果需要指定 --step：${stepsText(face, kind)}`);
     step = only;
   } else {
     if (!isStep(o.step)) throw new UsageError(`未知的 --step ${o.step}`);
     step = o.step;
   }
-  for (const r of rows) {
-    if (!requirementFor(r.face, form).steps.some((s) => s.step === step)) {
-      throw new UsageError(`#${r.id}（${r.face}，${form}）不需要步骤 ${step}；需要：${requirementFor(r.face, form).steps.map((s) => s.step).join(" → ")}`);
-    }
+  if (!requirementFor(face, kind).steps.some((s) => s.step === step)) {
+    throw new UsageError(`${face} 面的 [${kind}] 结果不需要步骤 ${step}；需要：${stepsText(face, kind)}`);
   }
-  return { issueData, body, rows, step, form };
+  return { body, outcomes, face, kind, step, shows };
 }
 
 type Opened = { readonly co: Checkout; readonly head: string };
@@ -124,6 +153,8 @@ async function snapshot(dir: string | null): Promise<Map<string, number>> {
   return m;
 }
 
+const label = (r: EvidenceRecord): string => `结果 ${r.results.map((x) => x.id).join("、")} [${r.kind}] ${r.face} ${r.step}`;
+
 export type RunOptions = CaptureOptions & {
   readonly argv: readonly string[];
   readonly artifacts: string | null;
@@ -132,7 +163,7 @@ export type RunOptions = CaptureOptions & {
 
 /** Run the command, tee its output, store the record. Returns the command's exit status. */
 export async function evRun(o: RunOptions): Promise<number> {
-  if (o.argv.length === 0) throw new UsageError("缺少要执行的命令：ghc ev run <issue> --row N [--step S] -- <command>");
+  if (o.argv.length === 0) throw new UsageError("缺少要执行的命令：ghc ev run <issue> --result N --shows "<看点>" [--step S] -- <command>");
   const t = await resolveTarget(o);
   const cos = await openCheckouts(o.checkouts);
   const artifactsDir = o.artifacts === null ? null : resolve(o.artifacts);
@@ -183,18 +214,20 @@ export async function evRun(o: RunOptions): Promise<number> {
   const record: EvidenceRecord = {
     id,
     issue: refKey(o.issue),
-    rows: t.rows.map((r) => r.id),
+    results: t.outcomes.map((x) => ({ id: x.id, digest: x.digest })),
+    face: t.face,
+    kind: t.kind,
     step: t.step,
+    shows: t.shows,
     capture: { kind: "run", command, shell, cwd: process.cwd(), completion, stdoutLines, stderrLines },
     startedAt,
     endedAt,
     checkouts: await stateAfter(cos),
     attachments,
-    issueRev: t.issueData.bodyRev,
   };
   await saveRecord(dir, record);
   const att = attachments.length > 0 ? `，截图 ${attachments.length} 张` : "";
-  process.stderr.write(`ghc: 已记录 ${id}（${refKey(o.issue)} #${record.rows.join(",")} ${t.step}${att}）\n`);
+  process.stderr.write(`ghc: 已记录 ${id}（${refKey(o.issue)} ${label(record)}${att}）\n`);
   switch (completion.kind) {
     case "exited":
       return completion.code;
@@ -218,15 +251,17 @@ export async function evAttach(o: AttachOptions): Promise<void> {
   const record: EvidenceRecord = {
     id,
     issue: refKey(o.issue),
-    rows: t.rows.map((r) => r.id),
+    results: t.outcomes.map((x) => ({ id: x.id, digest: x.digest })),
+    face: t.face,
+    kind: t.kind,
     step: t.step,
+    shows: t.shows,
     capture: { kind: "attach" },
     startedAt,
     endedAt: new Date().toISOString(),
     checkouts: await stateAfter(cos),
     attachments,
-    issueRev: t.issueData.bodyRev,
   };
   await saveRecord(dir, record);
-  process.stderr.write(`ghc: 已记录 ${id}（${refKey(o.issue)} #${record.rows.join(",")} ${t.step}，截图 ${attachments.length} 张）\n`);
+  process.stderr.write(`ghc: 已记录 ${id}（${refKey(o.issue)} ${label(record)}，截图 ${attachments.length} 张）\n`);
 }
