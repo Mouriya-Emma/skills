@@ -1,7 +1,7 @@
 // `ghc merge-ready`: the preconditions for merging a PR that delivers one issue, or for merging an issue tree into the default branch.
 
 import { branchHead, commitStatus, getIssue, getPr, type IssueData, type MergedPr, prsFrom } from "./github.ts";
-import { parseIssue } from "./issue.ts";
+import { outcomesDigest, parseIssue } from "./issue.ts";
 import { type Diagnostic, err } from "./model.ts";
 import { checkIdentity, checkPlacement, checkTreePr } from "./pr.ts";
 import { bufferMerge, integrationMerges, statusContext } from "./evidence/publish.ts";
@@ -63,7 +63,7 @@ export async function treeMergeReady(rootRef: Ref): Promise<Diagnostic[]> {
     if (latest === undefined) d.push(err(refKey(s.ref), "总体验收 issue 上没有证据包：先 ghc ev publish 该 issue"));
     else {
       if (!packComplete(latest.pack)) d.push(err(refKey(s.ref), `最新证据包不齐全：${latest.url}`));
-      if (latest.pack.issueRev !== data.bodyRev) d.push(err(refKey(s.ref), `最新证据包对应的正文修订已过期：${latest.url}`));
+      if (latest.pack.outcomesRev !== outcomesDigest(p.value.outcomes)) d.push(err(refKey(s.ref), `最新证据包采集之后预期结果的文字改过：${latest.url}`));
     }
     integration = { data, heads: latest?.pack.heads ?? null, composed: p.value.composed };
   }

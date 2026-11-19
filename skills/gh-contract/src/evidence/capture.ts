@@ -163,7 +163,7 @@ export type RunOptions = CaptureOptions & {
 
 /** Run the command, tee its output, store the record. Returns the command's exit status. */
 export async function evRun(o: RunOptions): Promise<number> {
-  if (o.argv.length === 0) throw new UsageError("缺少要执行的命令：ghc ev run <issue> --result N --shows "<看点>" [--step S] -- <command>");
+  if (o.argv.length === 0) throw new UsageError('缺少要执行的命令：ghc ev run <issue> --result N --shows "<看点>" [--step S] -- <command>');
   const t = await resolveTarget(o);
   const cos = await openCheckouts(o.checkouts);
   const artifactsDir = o.artifacts === null ? null : resolve(o.artifacts);

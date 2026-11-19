@@ -1,9 +1,9 @@
-// Evidence completeness: for every acceptance row and every step it owes, is there a record valid for the current inputs?
+// Evidence completeness: for every expected result and every step it owes, is there a record valid for the current inputs?
 
 import { type IssueData, mergeBaseRemote, type PrData } from "../github.ts";
 import { type Checkout, changedFiles, checkoutAt, headOf, isAncestor, mergeBase } from "../git.ts";
-import type { IssueBody, Row } from "../issue.ts";
-import { type Form, IMAGE_TYPES } from "../model.ts";
+import type { IssueBody, TypedOutcome } from "../issue.ts";
+import { type Face, IMAGE_TYPES, type Kind } from "../model.ts";
 import { parseRepo, type Repo, refKey, sameRepo } from "../ref.ts";
 import { requirementFor, type StepRule } from "../requirements.ts";
 import type { EvidenceRecord } from "./record.ts";
@@ -22,8 +22,11 @@ export type StepStatus =
   | { readonly kind: "invalid"; readonly reason: string }
   | { readonly kind: "missing" };
 
-export type RowStatus = {
-  readonly row: Row;
+export type OutcomeStatus = {
+  readonly outcome: TypedOutcome;
+  /** The face and template the evidence follows: those of the newest record for this wording, else the issue's own. */
+  readonly face: Face;
+  readonly kind: Kind;
   readonly steps: readonly { readonly rule: StepRule; readonly status: StepStatus }[];
   readonly overall: StepStatus["kind"];
   readonly orderProblem: string | null;
@@ -31,7 +34,9 @@ export type RowStatus = {
 
 export type CheckResult = {
   readonly issue: IssueData;
-  readonly rows: readonly RowStatus[];
+  readonly outcomes: readonly OutcomeStatus[];
+  /** Declared faces no result was observed through. */
+  readonly unseenFaces: readonly Face[];
   readonly complete: boolean;
   /** Target commit per repo the evidence must sit on (empty for integration mode). */
   readonly heads: readonly { repo: Repo; head: string }[];
@@ -68,7 +73,7 @@ async function localCheckout(path: string): Promise<Checkout | null> {
 }
 
 /** Why the record is not valid for the current inputs, or null when it is. */
-async function judge(r: EvidenceRecord, rule: StepRule, issue: IssueData, mode: Mode, a: Anchors): Promise<{ kind: "stale" | "invalid"; reason: string } | null> {
+async function judge(r: EvidenceRecord, rule: StepRule, outcome: TypedOutcome, mode: Mode, a: Anchors): Promise<{ kind: "stale" | "invalid"; reason: string } | null> {
   if (r.capture.kind === "run" && r.capture.completion.kind !== "exited") {
     return { kind: "invalid", reason: r.capture.completion.kind === "timeout" ? "命令超时" : `命令被信号 ${r.capture.completion.signal} 终止` };
   }
@@ -76,7 +81,7 @@ async function judge(r: EvidenceRecord, rule: StepRule, issue: IssueData, mode: 
     return { kind: "invalid", reason: "缺截图" };
   }
   if (r.checkouts.some((c) => !c.cleanBefore)) return { kind: "invalid", reason: "采集前工作区不干净" };
-  if (r.issueRev !== issue.bodyRev) return { kind: "stale", reason: `issue 正文已修订（记录对应 ${r.issueRev}）` };
+  if (!takenFor(r, outcome)) return { kind: "stale", reason: `结果 ${outcome.id} 的文字在采集之后改过` };
   switch (mode.kind) {
     case "integration": {
       for (const m of mode.merges) {
@@ -109,19 +114,24 @@ async function judge(r: EvidenceRecord, rule: StepRule, issue: IssueData, mode: 
         const repo = parseRepo(c.repo);
         if (repo === null || !sameRepo(repo, head.repo)) continue;
         if (await isAncestor(await localCheckout(c.path), repo, c.head, base)) return null;
-        return { kind: "stale", reason: `改动前截图采于 ${c.head.slice(0, 7)}，不是 base ${base.slice(0, 7)} 或其祖先` };
+        return { kind: "stale", reason: `改动前的记录采于 ${c.head.slice(0, 7)}，不是 base ${base.slice(0, 7)} 或其祖先` };
       }
-      return { kind: "stale", reason: "改动前截图不是在本 repo 的检出上采集" };
+      return { kind: "stale", reason: "改动前的记录不是在本 repo 的检出上采集" };
     }
   }
 }
 
-async function stepStatus(row: Row, rule: StepRule, records: readonly EvidenceRecord[], issue: IssueData, mode: Mode, a: Anchors): Promise<StepStatus> {
-  const candidates = records.filter((r) => r.rows.includes(row.id) && r.step === rule.step).sort((x, y) => (x.startedAt < y.startedAt ? 1 : -1));
+/** The record covers this result as it is worded now. */
+const takenFor = (r: EvidenceRecord, o: TypedOutcome): boolean => r.results.some((x) => x.id === o.id && x.digest === o.digest);
+
+const newestFirst = (x: EvidenceRecord, y: EvidenceRecord): number => (x.startedAt < y.startedAt ? 1 : -1);
+
+async function stepStatus(o: TypedOutcome, face: Face, kind: Kind, rule: StepRule, records: readonly EvidenceRecord[], mode: Mode, a: Anchors): Promise<StepStatus> {
+  const candidates = records.filter((r) => r.results.some((x) => x.id === o.id) && r.step === rule.step && r.face === face && r.kind === kind).sort(newestFirst);
   let stale: string | null = null;
   let invalid: string | null = null;
   for (const r of candidates) {
-    const v = await judge(r, rule, issue, mode, a);
+    const v = await judge(r, rule, o, mode, a);
     if (v === null) return { kind: "linked", record: r };
     if (v.kind === "stale") stale ??= v.reason;
     else invalid ??= v.reason;
@@ -139,15 +149,20 @@ export async function checkEvidence(
   records: readonly EvidenceRecord[],
   mode: Mode,
 ): Promise<CheckResult> {
-  const form: Form = body.kind === "standard" ? body.form : "e2e";
   const a = await anchorsFor(mode);
-  const rows: RowStatus[] = [];
-  for (const row of body.rows) {
-    const req = requirementFor(row.face, form);
-    // The composed state has no single base to compare against, so integration rows owe only head-anchored steps.
+  const outcomes: OutcomeStatus[] = [];
+  const firstFace = body.scope.faces[0];
+  for (const o of body.outcomes) {
+    // The issue's kind tag is a reference: the collector's newest record for this wording says which template applies.
+    const lead = records.filter((r) => takenFor(r, o)).sort(newestFirst)[0];
+    const face = lead?.face ?? firstFace;
+    if (face === undefined) continue; // no declared face: the issue fails lint and owes nothing checkable
+    const kind = lead?.kind ?? o.kind;
+    const req = requirementFor(face, kind);
+    // The composed state has no single base to compare against, so integration results owe only head-anchored steps.
     const rules = mode.kind === "integration" ? req.steps.filter((s) => s.anchor === "head") : req.steps;
     const steps: { rule: StepRule; status: StepStatus }[] = [];
-    for (const rule of rules) steps.push({ rule, status: await stepStatus(row, rule, records, issue, mode, a) });
+    for (const rule of rules) steps.push({ rule, status: await stepStatus(o, face, kind, rule, records, mode, a) });
     let orderProblem: string | null = null;
     if (req.ordered) {
       const linked = steps.flatMap((s) => (s.status.kind === "linked" ? [{ step: s.rule.step, at: s.status.record.startedAt }] : []));
@@ -158,27 +173,32 @@ export async function checkEvidence(
       }
     }
     const worst = steps.reduce<StepStatus["kind"]>((acc, s) => (RANK[s.status.kind] > RANK[acc] ? s.status.kind : acc), "linked");
-    rows.push({ row, steps, overall: orderProblem !== null && worst === "linked" ? "invalid" : worst, orderProblem });
+    outcomes.push({ outcome: o, face, kind, steps, overall: orderProblem !== null && worst === "linked" ? "invalid" : worst, orderProblem });
   }
+  const unseenFaces = body.scope.faces.filter((f) => !outcomes.some((x) => x.face === f));
   return {
     issue,
-    rows,
-    complete: rows.length > 0 && rows.every((r) => r.overall === "linked"),
+    outcomes,
+    unseenFaces,
+    complete: outcomes.length > 0 && outcomes.length === body.outcomes.length && outcomes.every((x) => x.overall === "linked") && unseenFaces.length === 0,
     heads: a.head === null ? [] : [{ repo: a.head.repo, head: a.head.sha }],
     base: a.base,
   };
 }
 
+/** How a result's evidence deviates from the issue's tag, for display. */
+export const kindNote = (x: OutcomeStatus): string => (x.kind === x.outcome.kind ? `[${x.kind}]` : `[${x.kind}]（issue 标 [${x.outcome.kind}]）`);
+
 export function describe(r: CheckResult): string {
-  const lines = [`${refKey(r.issue.ref)}：${r.rows.filter((x) => x.overall === "linked").length}/${r.rows.length} 行齐全`];
-  for (const row of r.rows) {
-    for (const s of row.steps) {
+  const lines = [`${refKey(r.issue.ref)}：${r.outcomes.filter((x) => x.overall === "linked").length}/${r.outcomes.length} 条结果齐全`];
+  for (const x of r.outcomes) {
+    for (const s of x.steps) {
       const st = s.status;
-      const detail =
-        st.kind === "linked" ? `记录 ${st.record.id}` : st.kind === "missing" ? "没有记录" : st.reason;
-      lines.push(`  #${row.row.id} ${row.row.face} ${s.rule.step}: ${st.kind}（${detail}）`);
+      const detail = st.kind === "linked" ? `记录 ${st.record.id}` : st.kind === "missing" ? "没有记录" : st.reason;
+      lines.push(`  结果 ${x.outcome.id} ${kindNote(x)} ${x.face} ${s.rule.step}: ${st.kind}（${detail}）`);
     }
-    if (row.orderProblem !== null) lines.push(`  #${row.row.id} 顺序错误：${row.orderProblem}`);
+    if (x.orderProblem !== null) lines.push(`  结果 ${x.outcome.id} 顺序错误：${x.orderProblem}`);
   }
+  for (const f of r.unseenFaces) lines.push(`  面 ${f}：没有任何结果经它观察（采集时用 --face ${f}）`);
   return lines.join("\n");
 }

@@ -112,7 +112,7 @@ export async function evCheck(ref: Ref): Promise<number> {
 async function details(t: Target, check: CheckResult): Promise<RecordDetail[]> {
   const dirs = new Map((await loadRecords(t.issue.ref)).map((x) => [x.record.id, x.dir]));
   const linked = new Map<string, { record: EvidenceRecord; dir: string }>();
-  for (const r of check.rows) {
+  for (const r of check.outcomes) {
     for (const s of r.steps) {
       if (s.status.kind !== "linked") continue;
       const dir = dirs.get(s.status.record.id);
@@ -183,14 +183,14 @@ export async function evPublish(ref: Ref): Promise<number> {
   const target = t.kind === "pr" ? t.pr.ref : t.issue.ref;
   const url = await postComment(target, renderPack(pack, det, check));
   const complete = check.complete && problems.length === 0;
-  const missing = check.rows.filter((r) => r.overall !== "linked").map((r) => `#${r.row.id}`);
+  const missing = [...check.outcomes.filter((x) => x.overall !== "linked").map((x) => `结果 ${x.outcome.id}`), ...check.unseenFaces.map((f) => `面 ${f}`)];
   const statusTargets: { repo: Repo; sha: string }[] =
     t.kind === "pr" ? [{ repo: t.pr.ref.repo, sha: t.pr.headRefOid }] : pack.heads.map((h) => ({ repo: h.repo, sha: h.head }));
   for (const s of statusTargets) {
     await setStatus(s.repo, s.sha, {
       state: complete ? "success" : "failure",
       context: statusContext(t.issue.ref),
-      description: complete ? `${pack.linked}/${pack.total} 行齐全 @${s.sha.slice(0, 7)}` : `缺 ${missing.join(" ")}${problems.length > 0 ? "；组合对象未全部合并" : ""}`,
+      description: complete ? `${pack.linked}/${pack.total} 条结果齐全 @${s.sha.slice(0, 7)}` : `缺 ${missing.join("、")}${problems.length > 0 ? "；组合对象未全部合并" : ""}`,
       targetUrl: url,
     });
   }
