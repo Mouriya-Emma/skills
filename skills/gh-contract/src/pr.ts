@@ -81,7 +81,7 @@ export function checkTreePr(pr: PrData, root: IssueData): Diagnostic[] {
 
 const STANDARD_SECTIONS = ["摘要", "实现说明"];
 const NO_CODE_SECTIONS = ["摘要", "做了什么", "调整思路", "增加", "减少"];
-const LEGACY_EVIDENCE = /Layer\s*\d|变更预演|落地核对|启动\s*\/\s*运行时|端到端业务行为|卫生检查|^分析$|^证据/;
+const LEGACY_EVIDENCE = /Layer\s*\d|变更预演|落地核对|启动\s*\/\s*运行时|端到端业务行为|卫生检查|仓库检查|^分析$|^证据/;
 
 export function checkBody(pr: PrData, issue: IssueBody): Diagnostic[] {
   const doc = parseDoc(pr.body);
