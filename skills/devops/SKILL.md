@@ -5,7 +5,7 @@ description: 个人基础设施与 homelab/trading 运维的入口：app 接入�
 
 # devops：基础设施 skill 路由
 
-app 归 km 还是归 IaC，先按 `personal-infra-routing` 规则的归属判据判定，再按下表进入对应 skill；进入 repo 后遵守它的 `AGENTS.md` 与 rules。下一层 skill 不在 skill 目录里列出，用 `skill://<name>` 读取；其中 `iac-projects`、`homelab-trading` 自身也是路由，按它们的指引再往下一层。
+app 归 km 还是归 IaC，先按 `personal-infra-routing` 规则的归属判据判定，再按下表进入对应 skill。下一层 skill 不在 skill 目录里列出，用 `skill://<name>` 读取；其中 `iac-projects`、`homelab-trading` 自身也是路由，按它们的指引再往下一层。
 
 | 任务 | skill |
 |---|---|
