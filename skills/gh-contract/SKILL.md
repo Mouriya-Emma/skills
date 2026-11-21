@@ -26,7 +26,7 @@ description: ghc CLI：程序化读取与检查 GitHub issue/PR 内容——完�
 | `ghc ev publish <PR|总体验收 issue>` | 发布证据包 comment，并在 HEAD 写本 issue 的 `evidence/<owner>/<repo>#<N>` 状态 |
 | `ghc gate diff <issue> --head <sha> --result PASS\|FAIL [--design REF]` | `review diff` 结论 comment 的第一行，原样放在 comment 开头；comment 发在 issue，PR 已开出时发在 PR thread |
 | `ghc gate header <PR> --result PASS\|FAIL [--design REF]` | `review 证据和 PR` 结论 comment 的第一行，原样放在 comment 开头 |
-| `ghc gate list <PR>` | 列出两种 review 的结论，并判断 `review 证据和 PR` 的结论是否仍有效（`PASS` 一旦给出即锁定有效，后续为合入中转分支解冲突更新 HEAD 不再失效） |
+| `ghc gate list <PR>` | 列出两种 review 的结论，并判断 `review 证据和 PR` 的结论是否仍有效（`PASS` 一旦给出即锁定有效，后续为合入中转分支解冲突更新 HEAD、issue 正文修订都不再使其失效） |
 | `ghc merge-ready <PR> --issue <ref> --head <sha>` | 合并交付一个 issue 的 PR 之前：PR open 可合并、HEAD 未变、落在该去的分支、checks 全部通过、有有效的 review PASS；`PASS` 所在提交有 `review diff` 的 `PASS` 与本 issue 证据状态 success，之后分支只新增了合并 base 的提交 |
 | `ghc merge-ready <树根> --tree` | 合并 tree PR 之前：剩余 child 都已合入缓冲分支、总体验收证据包齐全且采于缓冲分支当前提交、每个 repo 恰有一个合规的 tree PR；树根之外 repo 的 tree PR 先合并 |
 
@@ -38,7 +38,7 @@ description: ghc CLI：程序化读取与检查 GitHub issue/PR 内容——完�
 - 证据挂在 issue 的预期结果上。结果上的类型决定模板：`[改]` 与 `[保持]` 多交一条 `before`，在 base 提交的检出上采；`[新]` 与 `[删]` 只交 HEAD 上的观察。issue 标的类型是参考，`--kind` 按实际类型采集，证据包标出差异。
 - 每条记录带 `--shows`：一句话写明 reviewer 能从它看出什么。怎样观察由采集的人在实现后决定：经真实入口；本次自写的测试、mock、stub 和取证 driver 的输出不算（`skill://writing-pr`「证据」）。
 - issue 声明多个面时用 `--face` 指明记录经哪个面观察，面决定步骤（`ghc ev plan` 列出）；每个声明的面至少要有一条结果经它观察。
-- 采集前提交改动：checkout 有未提交的 tracked 改动时 `ghc` 拒绝采集。在 `review 证据和 PR` 通过之前，HEAD 变了且自记录以来改动不只是 `.md` 文件（或新 HEAD 不是记录所在 HEAD 的后代），旧记录对新 HEAD 失效，在新 HEAD 上重采；只改了 `.md` 文件时，记录仍对新 HEAD 有效，`ghc ev check` 照常判 linked，不重采（改动前的记录按 base 判定，不受此影响）；issue 改写了某条结果的文字，只有这条结果的记录失效。一旦 `review 证据和 PR` 通过（`PASS`），PR 直接合入中转分支，必定不再 review 也不要再重新采集证据；之后为合入中转分支用 merge 解冲突而更新 HEAD，`ghc gate list`、`ghc ev check <PR>` 与 `ghc merge-ready` 仍直接认可在 `PASS` 提交上已通过的结论与证据。后续再发生什么问题必须开新的 sub-issue 和 PR。
+- 采集前提交改动：checkout 有未提交的 tracked 改动时 `ghc` 拒绝采集。在 `review 证据和 PR` 通过之前，HEAD 变了且自记录以来改动不只是 `.md` 文件（或新 HEAD 不是记录所在 HEAD 的后代），旧记录对新 HEAD 失效，在新 HEAD 上重采；只改了 `.md` 文件时，记录仍对新 HEAD 有效，`ghc ev check` 照常判 linked，不重采（改动前的记录按 base 判定，不受此影响）；issue 改写了某条结果的文字，只有这条结果的记录失效。一旦 `review 证据和 PR` 通过（`PASS`），PR 直接合入中转分支，必定不再 review 也不要再重新采集证据；之后为合入中转分支用 merge 解冲突而更新 HEAD，`ghc gate list`、`ghc ev check <PR>` 与 `ghc merge-ready` 仍直接认可在 `PASS` 提交上已通过的结论与证据。后续再发生什么问题必须开新的 issue 和 PR。
 - 同一条结果的同一步骤取最新一条有效记录。
 - 截图经 `skill://gh-attachment` 上传为 GitHub 附件；日志以末尾片段写进证据包。
 - `ghc ev publish` 发现疑似凭据时拒绝发布：换成不打印凭据的命令重新采集。

@@ -14,7 +14,7 @@ PR 承载实现说明与证据：正文说明 diff 怎样兑现 issue 的原因�
 - 一个 PR 交付一个 issue，正文第一行 `Closes #<N>` 或 `Closes <owner>/<repo>#<N>`。
 - base 由 issue 的位置决定，`ghc lint <PR>` 检查：独立 issue 合入默认分支；树内 child 合入缓冲分支 `tree/<树根 owner>-<树根 repo>-<树根编号>`，到 tree PR 合并时才关闭。每个 issue 有自己的分支和 HEAD，PR 的 diff 只含本 issue 的改动。
 - 标题和正文用中文；代码、路径、命令与工具输出原样。conventional-commit 前缀仅在 repo 已有惯例时用。
-- 只修改尚未通过 `review 证据和 PR` 的 open PR。在 `review 证据和 PR` 通过之前如需重试，续用原 branch 和 PR：同步更新实现说明，按 `ghc ev check` 列出的过期项在新 HEAD 上重新采集并发布证据包，再发重试评论。一旦 `review 证据和 PR` 通过，PR 直接合入中转分支，必定不再 review、也不要再重新采集证据；后续再发生什么问题必须开新的 sub-issue 和 PR。
+- 只修改尚未通过 `review 证据和 PR` 的 open PR。在 `review 证据和 PR` 通过之前如需重试，续用原 branch 和 PR：同步更新实现说明，按 `ghc ev check` 列出的过期项在新 HEAD 上重新采集并发布证据包，再发重试评论。一旦 `review 证据和 PR` 通过，PR 直接合入中转分支，必定不再 review、也不要再重新采集证据；后续再发生什么问题必须开新的 issue 和 PR。
 
 ## 实现说明（标准 PR）
 
