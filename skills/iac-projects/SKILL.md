@@ -14,7 +14,6 @@ IaC 只管机器和平台：VM/CT 生命周期、磁盘、网卡、主机基线�
 
 | 任务 | skill |
 |---|---|
-| 局域网（`hb.lan`）与 NetBird VPN（`mouriya.lan`）的域名和 IP 检查；新建 VM/CT 后的可发现性 | `skill://dns-check` |
 | Keycloak realm、client、user、mapper 与 SSO/OIDC/SAML 接入 | `skill://keycloak` |
 
 ## repo
