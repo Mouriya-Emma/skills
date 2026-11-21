@@ -4,16 +4,23 @@ description: 检查局域网和 VPN 网络中的域名和 IP。
 allowed-tools: Bash, Read, Edit, Write, Grep, Glob, mcp__ssh-manager__ssh_execute
 ---
 
-# DNS host check & registration
+# LAN & NetBird name/IP check
 
-Check how a guest's name is answered by CT 312 (`dns`, `192.168.1.22`, `dns.hb.lan`): direct PVE-plugin discovery or generated zone data. Correlate guest identity, reachability, producer state and DNS responses before selecting scanner, IaC identity, or connectivity repair. A guest need not appear in `lan.hosts` to have a valid plugin-served A record.
+Two namespaces, two authorities. Route by the name's zone or the address's range:
+
+| Network | Zone | Addresses | Name authority |
+|---|---|---|---|
+| Homelab LAN | `hb.lan`, `1.168.192.in-addr.arpa` | `192.168.1.0/24` | CoreDNS on CT 312 (`dns`, `192.168.1.22`, `dns.hb.lan`) — sections "DNS layering" through "LAN step 3" |
+| NetBird VPN | `mouriya.lan` | `100.64.0.0/10` (peers currently `100.85.0.0/16`) | NetBird SaaS management; every peer's own daemon answers — section "NetBird (`mouriya.lan`)" |
+
+For LAN names, check how the guest's name is answered by CT 312: direct PVE-plugin discovery or generated zone data. Correlate guest identity, reachability, producer state and DNS responses before selecting scanner, IaC identity, or connectivity repair. A guest need not appear in `lan.hosts` to have a valid plugin-served A record.
 
 Use `iac-projects` before any fix that changes infrastructure. Read the current `homelab-tf` entrypoint and DNS role docs to confirm the topology below; inspection does not authorize scanner runs, playbook apply, or bridge changes.
 
 ## Arguments
 
-- First skill argument: guest IP (required).
-- Second skill argument: desired hostname (optional; the scanner fallback is `host-<last-octet>`).
+- First skill argument (required): LAN guest IP, or NetBird peer name / `100.x` IP.
+- Second skill argument (LAN only, optional): desired hostname; the scanner fallback is `host-<last-octet>`. `mouriya.lan` names are assigned by NetBird, not chosen here.
 
 Commands below use `<IP>` and `<hostname>` placeholders, not shell `$0`/`$1`; substitute the verified values before running.
 
@@ -52,7 +59,7 @@ mcp__ssh-manager__ssh_execute server=pve command="pct exec 312 -- <cmd>"
 
 Use the PVE/pct path; `ssh-mcp-sync` deliberately excludes CTs. Direct CT SSH is not a prerequisite for this workflow and should not trigger requests to install keys or sshd.
 
-## Step 1: gather current state
+## LAN step 1: gather current state
 
 Run these in parallel:
 
@@ -64,7 +71,7 @@ Run these in parallel:
    - Reverse: `dig +short -x <IP> @192.168.1.22`. A plugin-only A record does not by itself imply a PTR exists; compare against the required reverse-record contract.
 5. **PVE config** (via PVE): locate the IP/hostname in `/etc/pve/lxc/*.conf` and `/etc/pve/qemu-server/*.conf` to confirm guest identity and MAC. Use the available file/search tool; do not infer guest identity from an ARP label alone.
 
-## Step 2: report findings
+## LAN step 2: report findings
 
 | Check            | Result |
 |------------------|--------|
@@ -75,7 +82,7 @@ Run these in parallel:
 | DNS forward | expected name and IP / unexpected answer / NXDOMAIN / SERVFAIL |
 | DNS reverse | expected PTR / absent as expected for plugin-only record / missing required PTR / error |
 
-## Step 3: diagnose & fix
+## LAN step 3: diagnose & fix
 
 ### Case A — Expected DNS answer from its intended authority
 Report success for the requested contract even if an A record is served directly by the PVE plugin and absent from `lan.hosts`. Report PTR separately; do not call a plugin-only A answer broken because it lacks a generated reverse record.
@@ -115,8 +122,41 @@ Separate a scanner blind spot from actual guest failure. Check:
    If missing, the emergency command is `bridge fdb add <VM-MAC> dev <PF>`, but it mutates the PVE host and requires an explicitly authorized recovery scope. The helper and RAR-sync script are hand-installed on PVE (not in the `pve-host` role; homelab-tf#495), so a durable repair means bringing them into IaC first. The `coredns-proxmox` plugin can resolve SR-IOV guests from its state dump even when the ARP scanner cannot see them, so a missing ARP response is not proof of failed DNS.
 4. **Guest firewall** blocking ICMP/ARP.
 
-Fix connectivity, then go back to Step 1.
+Fix connectivity, then go back to LAN step 1.
 
-## Verification
+## NetBird (`mouriya.lan`)
+
+The peer list, peer FQDNs and overlay IPs belong to NetBird SaaS management; nothing in IaC or on CT 312 stores `mouriya.lan` records. A peer's name is the hostname it enrolled with (`netbird up --hostname`, from `ct-bootstrap` or the VM cloud-init fragment), so it can differ from its `hb.lan` name — CT 312 itself is `unbound.mouriya.lan` (`100.85.197.93`), not `dns.mouriya.lan`.
+
+Resolution paths:
+
+- **On a NetBird peer** — the local daemon is the resolver for `mouriya.lan` and answers from its peer map: on macOS (userspace interface) at `100.85.255.254:53` via `scutil --dns` supplemental resolvers; on Linux at the peer's own `wt0` IP. The management-side nameserver group sends `hb.lan` and `mouriya.lan` to `192.168.1.22:53`; `netbird status -d` shows it under `Nameservers` with `Available`/unavailable. NetBird cannot publish individual A records, so a few names (e.g. `registry.237575.xyz` → mesh IP) are per-peer `/etc/hosts` overrides; check the client's hosts file before blaming DNS.
+- **On a LAN-only client** — unbound on `192.168.1.22` forwards `mouriya.lan` to CT 312's daemon at its `wt0` IP, rendered from `ansible_wt0.ipv4.address` at `make ct-provision-dns` time. If CT 312's NetBird IP changes, the forward points at a dead address until the DNS role is re-applied. `mouriya.lan` is in `unbound_private_domains`; without it unbound strips the CGNAT answers.
+- **Reverse (PTR) for `100.x`** — only NetBird daemons answer it. Unbound's built-in RFC 6303 zone returns authoritative NXDOMAIN for `85.100.in-addr.arpa`, so an empty `dig -x <100.x> @192.168.1.22` is expected, not a fault.
+
+### NetBird step 1: gather current state
+
+Run on the client that has the problem, in parallel:
+
+1. `netbird status -d` — `Management`/`Signal` connected, `Nameservers` available, and the target peer's block: `NetBird IP`, `Status` (`Connected` vs `Connecting` = registered but offline), connection type, last handshake.
+2. Forward via the local daemon: `dig +short <peer>.mouriya.lan @<local daemon IP>` (macOS `100.85.255.254`; Linux the client's `wt0` IP), plus the OS path (`dscacheutil -q host -a name <peer>.mouriya.lan` on macOS, `getent hosts <peer>.mouriya.lan` on Linux).
+3. Forward via the LAN resolver: `dig +short <peer>.mouriya.lan @192.168.1.22`.
+4. Reverse: `dig +short -x <100.x> @100.85.197.93`.
+5. CT 312's own view: `curl -s http://192.168.1.22/info` — `[zones]` shows the `mouriya.lan` forward target; `[mouriya.lan:self]` and `[mouriya.lan:connected]` list CT 312's NetBird identity and reachable peers (regenerated every 60 s from `netbird status --json`; `Connecting` peers are omitted there and shown on the HTML page).
+6. Reachability: `ping -c 2 <100.x>` from a NetBird peer.
+
+### NetBird step 2: diagnose
+
+| Observation | Cause | Action |
+|---|---|---|
+| Peer absent from `netbird status -d` | Not enrolled, removed, or blocked by NetBird access policy | Check peer and policy in NetBird management; enrollment for homelab guests runs through `ct-bootstrap` / VM cloud-init (`iac-projects`) |
+| Peer `Connecting` | Registered but offline/unreachable | Fix the peer's host or daemon; DNS is not the fault |
+| Local daemon answers, `@192.168.1.22` returns nothing | `/info` `mouriya.lan` forward ≠ CT 312's current NetBird IP, or CT 312's daemon down | Compare with `[mouriya.lan:self]`; re-apply `make ct-provision-dns` via `iac-projects` for a changed IP; inspect `netbird.service` on CT 312 via `pct exec 312` |
+| `hb.lan` fails on a NetBird peer off the LAN, `mouriya.lan` works | Nameserver group unavailable or `192.168.1.22` unreachable from that peer | `netbird status -d` `Nameservers`; reachability of `192.168.1.22` from the peer |
+| Different answers on different peers | Per-peer `/etc/hosts` override | Inspect the hosts file on each peer |
+
+Verify from the client that reported the failure: repeat the forward/reverse `dig` against the resolver that client actually uses, and confirm the answer matches the peer's `NetBird IP` in `netbird status -d`.
+
+## LAN verification
 
 After the authorized repair, repeat the requested forward/reverse `dig` from the actual LAN client path against `192.168.1.22`; compare each answer with its intended source and record contract. For zone-backed records, observe source, merge, generated zone and reload; for direct PVE answers, inspect guest identity/plugin discovery without requiring a `lan.hosts` entry. A required PTR must be verified independently. A successful apply/scanner exit alone does not prove resolution; `unbound-control` is not the LAN-record mutation path.
