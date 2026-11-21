@@ -41,7 +41,7 @@ description: 将相关任务或审计、调查、review 的多个发现组织为
 
 树的验收与单个 issue 不同：单个 issue 的 PR 自己做 e2e；树里 e2e 不面向任何一个 PR，而是单独一个**总体验收 issue**（`类型：总体验收`，模板见 [child-body.md](references/child-body.md)）面向功能做。全部实现 child 合入树的缓冲分支后，它按用户功能逐项在组合后的系统上做真实的端到端验收；每条结果是一项功能，不是某个 child 的复验。它不改代码、没有自己的 PR，由 tree PR 关闭；证据在缓冲分支的当前提交上采集，child 的证据不算数。
 
-每个 child 在「测试形态」声明它的 PR 证据在哪里采集，只能是 `最薄入口` 或 `集成`：owner child 默认 `最薄入口`，外围 child 用 `集成`，只改给人读的文本的用无代码变更类型。每个实现 child 都要出现在总体验收某一条功能结果的「经由」里。这些结构由 `ghc lint <umbrella> --tree` 检查。
+每个 child 在「测试形态」声明它的 PR 证据在哪里采集，只能是 `最薄入口` 或 `集成`：owner child 默认 `最薄入口`（面是 `gui`、`iac`、`agent-config` 时没有最薄入口，用 `集成`），外围 child 用 `集成`，只改给人读的文本的用无代码变更类型。每个实现 child 都要出现在总体验收某一条功能结果的「经由」里。这些结构由 `ghc lint <umbrella> --tree` 检查。
 
 ## 写什么，不写什么
 
