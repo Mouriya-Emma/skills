@@ -52,7 +52,7 @@ PR 承载实现说明与证据：正文说明 diff 怎样兑现 issue 的原因�
 1. 开工前跑 `ghc ev plan <issue>`，逐条结果定下从哪个真实入口观察、在哪个环境、需要哪些前置（部署目标、依赖服务、数据、凭据），实现要把这个入口交出来。`[改]` 与 `[保持]` 的改动前观察在 base 提交的干净检出上采，这时就可以采。
 2. 实现、提交并通过 `review diff` 后，逐条结果采集：
    - 命令行能读到的：`ghc ev run <issue> --result N [--step S] --shows "<看点>" -- <命令>`。一条记录同时证明多条结果时用 `--result N,M`。
-   - 界面上的：按 `skill://ego-browser` 以真实用户身份操作到该状态并截图，再 `ghc ev attach <issue> --result N [--step S] --shows "<看点>" <图片>`。
+   - 界面上的：Web 界面按 `skill://ego-browser`、Tern 界面按 `skill://tern` 操作到该状态并截图，再 `ghc ev attach <issue> --result N [--step S] --shows "<看点>" <图片>`。
    - issue 声明了多个面时用 `--face` 指明这条记录经哪个面观察；每个声明的面至少有一条结果经它观察。
 3. `ghc ev check <issue>` 退出码 0 才开 PR；它列出的缺失、过期、无效项就是待办。工作区有未提交改动时 `ghc` 拒绝采集；在 `review 证据和 PR` 通过之前，HEAD 变了且自记录以来改动不只是 `.md` 文件，才在新 HEAD 上重采；一旦 `review 证据和 PR` 通过，PR 直接合入中转分支，即便为解冲突更新分支也必定不再重采。
 
