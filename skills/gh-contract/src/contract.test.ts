@@ -1,4 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { type CheckResult, checkEvidence } from "./evidence/check.ts";
 import type { EvidenceRecord } from "./evidence/record.ts";
 import { packComplete, parsePack, renderPack, toPack } from "./evidence/render.ts";
@@ -256,6 +259,81 @@ describe("evidence check", () => {
     const r = await check(standard({ faces: ["cli", "library"], outcomes: ["- 结果 1 [新]：a"] }), (b) => [recordFor(first(b))]);
     expect(r.unseenFaces).toEqual(["library"]);
     expect(r.complete).toBe(false);
+  });
+});
+
+describe("evidence check after the HEAD moved", () => {
+  const root = mkdtempSync(join(tmpdir(), "ghc-drift-"));
+  afterAll(() => rmSync(root, { recursive: true, force: true }));
+
+  const git = (cwd: string, ...args: string[]): string => {
+    const r = Bun.spawnSync(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", ...args], { cwd });
+    if (r.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr.toString()}`);
+    return r.stdout.toString().trim();
+  };
+  /** Commit the given files (path → content) on the current branch; returns the new HEAD. */
+  const commit = (dir: string, files: Record<string, string>): string => {
+    for (const [path, content] of Object.entries(files)) {
+      mkdirSync(dirname(join(dir, path)), { recursive: true });
+      writeFileSync(join(dir, path), content);
+    }
+    git(dir, "add", "-A");
+    git(dir, "commit", "-m", "c");
+    return git(dir, "rev-parse", "HEAD");
+  };
+  let n = 0;
+  const freshRepo = (): { dir: string; first: string } => {
+    const dir = join(root, `r${n++}`);
+    mkdirSync(dir);
+    git(dir, "init", "-b", "main");
+    git(dir, "remote", "add", "origin", "https://github.com/acme/app.git");
+    return { dir, first: commit(dir, { "src/a.ts": "1", "README.md": "1" }) };
+  };
+
+  /** Evidence taken at `taken` is judged against whatever the checkout's HEAD is now. */
+  const statusAt = async (dir: string, taken: string) => {
+    const text = standard({ outcomes: ["- 结果 1 [新]：a"] });
+    const body = standardBody(text);
+    const o = body.outcomes[0];
+    if (o === undefined) throw new Error("no outcome");
+    const record = recordFor(o, { checkouts: [{ repo: "acme/app", path: dir, head: taken, cleanBefore: true, cleanAfter: true }] });
+    const r = await checkEvidence(issueData(text), body, [record], { kind: "local", checkout: { path: dir, repo }, baseRef: "main" });
+    return r.outcomes[0]?.steps[0]?.status;
+  };
+
+  test("only Markdown changed since the record: it stays linked", async () => {
+    const { dir, first } = freshRepo();
+    commit(dir, { "README.md": "2", "docs/Guide.MD": "new" });
+    expect((await statusAt(dir, first))?.kind).toBe("linked");
+  });
+
+  test("a code file changed next to Markdown: stale, naming the files", async () => {
+    const { dir, first } = freshRepo();
+    const head = commit(dir, { "README.md": "2", "src/a.ts": "2" });
+    expect(await statusAt(dir, first)).toEqual({
+      kind: "stale",
+      reason: `采于 ${first.slice(0, 7)}，当前 HEAD ${head.slice(0, 7)}；之后改动 README.md, src/a.ts`,
+    });
+  });
+
+  test("a code file renamed to a Markdown name is still a code change", async () => {
+    const { dir, first } = freshRepo();
+    git(dir, "mv", "src/a.ts", "src/a.md");
+    commit(dir, {});
+    expect((await statusAt(dir, first))?.kind).toBe("stale");
+  });
+
+  test("a HEAD that does not descend from the record's HEAD is stale even when only Markdown differs", async () => {
+    const { dir, first } = freshRepo();
+    git(dir, "checkout", "-b", "other");
+    const side = commit(dir, { "NOTES.md": "x" });
+    git(dir, "checkout", "main");
+    const head = commit(dir, { "README.md": "2" });
+    expect(await statusAt(dir, side)).toEqual({
+      kind: "stale",
+      reason: `采于 ${side.slice(0, 7)}，当前 HEAD ${head.slice(0, 7)}；当前 HEAD 不是采集 HEAD 的后代`,
+    });
+    expect(first).not.toBe(side);
   });
 });
 

@@ -14,7 +14,7 @@ PR 承载实现说明与证据：正文说明 diff 怎样兑现 issue 的原因�
 - 一个 PR 交付一个 issue，正文第一行 `Closes #<N>` 或 `Closes <owner>/<repo>#<N>`。
 - base 由 issue 的位置决定，`ghc lint <PR>` 检查：独立 issue 合入默认分支；树内 child 合入缓冲分支 `tree/<树根 owner>-<树根 repo>-<树根编号>`，到 tree PR 合并时才关闭。每个 issue 有自己的分支和 HEAD，PR 的 diff 只含本 issue 的改动。
 - 标题和正文用中文；代码、路径、命令与工具输出原样。conventional-commit 前缀仅在 repo 已有惯例时用。
-- 只修改尚未通过 `review 证据和 PR` 的 open PR。在 `review 证据和 PR` 通过之前如需重试，续用原 branch 和 PR：同步更新实现说明，在新 HEAD 上重新采集并发布证据包，再发重试评论。一旦 `review 证据和 PR` 通过，PR 直接合入中转分支，必定不再 review、也不要再重新采集证据；后续再发生什么问题必须开新的 sub-issue 和 PR。
+- 只修改尚未通过 `review 证据和 PR` 的 open PR。在 `review 证据和 PR` 通过之前如需重试，续用原 branch 和 PR：同步更新实现说明，按 `ghc ev check` 列出的过期项在新 HEAD 上重新采集并发布证据包，再发重试评论。一旦 `review 证据和 PR` 通过，PR 直接合入中转分支，必定不再 review、也不要再重新采集证据；后续再发生什么问题必须开新的 sub-issue 和 PR。
 
 ## 实现说明（标准 PR）
 
@@ -54,7 +54,7 @@ PR 承载实现说明与证据：正文说明 diff 怎样兑现 issue 的原因�
    - 命令行能读到的：`ghc ev run <issue> --result N [--step S] --shows "<看点>" -- <命令>`。一条记录同时证明多条结果时用 `--result N,M`。
    - 界面上的：按 `skill://ego-browser` 以真实用户身份操作到该状态并截图，再 `ghc ev attach <issue> --result N [--step S] --shows "<看点>" <图片>`。
    - issue 声明了多个面时用 `--face` 指明这条记录经哪个面观察；每个声明的面至少有一条结果经它观察。
-3. `ghc ev check <issue>` 退出码 0 才开 PR；它列出的缺失、过期、无效项就是待办。工作区有未提交改动时 `ghc` 拒绝采集；在 `review 证据和 PR` 通过之前，HEAD 变了就在新 HEAD 上重采；一旦 `review 证据和 PR` 通过，PR 直接合入中转分支，即便为解冲突更新分支也必定不再重采。
+3. `ghc ev check <issue>` 退出码 0 才开 PR；它列出的缺失、过期、无效项就是待办。工作区有未提交改动时 `ghc` 拒绝采集；在 `review 证据和 PR` 通过之前，HEAD 变了且自记录以来改动不只是 `.md` 文件，才在新 HEAD 上重采；一旦 `review 证据和 PR` 通过，PR 直接合入中转分支，即便为解冲突更新分支也必定不再重采。
 
 **证据成立的两条规则。**
 

@@ -1,6 +1,6 @@
 // Local git facts for a checkout.
 
-import { isAncestorRemote } from "./github.ts";
+import { type Changes, changedFilesRemote, isAncestorRemote } from "./github.ts";
 import { EnvError, run, runOk, UsageError } from "./proc.ts";
 import { type Repo, repoFromRemote } from "./ref.ts";
 
@@ -44,9 +44,14 @@ export async function mergeBase(path: string, a: string, b: string): Promise<str
   return (await runOk(["git", "-C", path, "merge-base", a, b])).trim();
 }
 
-export async function changedFiles(path: string, from: string, to: string): Promise<string[]> {
-  const r = await run(["git", "-C", path, "diff", "--name-only", `${from}..${to}`]);
-  return r.code === 0 ? r.stdout.split("\n").filter((l) => l !== "") : [];
+/** Paths changed from `from` to `to` (`from` an ancestor of `to`): local diff when both commits are present, else the compare API. A rename lists both paths. */
+export async function changedFiles(co: Checkout | null, repo: Repo, from: string, to: string): Promise<Changes> {
+  if (co !== null && (await hasCommit(co.path, from)) && (await hasCommit(co.path, to))) {
+    const r = await run(["git", "-C", co.path, "diff", "--name-only", "--no-renames", `${from}..${to}`]);
+    if (r.code !== 0) throw new EnvError(`git diff: ${r.stderr.trim()}`);
+    return { kind: "all", files: r.stdout.split("\n").filter((l) => l !== "") };
+  }
+  return changedFilesRemote(repo, from, to);
 }
 
 export async function defaultBranchRef(path: string): Promise<string> {

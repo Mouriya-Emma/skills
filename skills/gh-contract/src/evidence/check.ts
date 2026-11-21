@@ -1,6 +1,6 @@
 // Evidence completeness: for every expected result and every step it owes, is there a record valid for the current inputs?
 
-import { type IssueData, mergeBaseRemote, type PrData } from "../github.ts";
+import { type Changes, type IssueData, mergeBaseRemote, type PrData } from "../github.ts";
 import { type Checkout, changedFiles, checkoutAt, headOf, isAncestor, mergeBase } from "../git.ts";
 import type { IssueBody, TypedOutcome } from "../issue.ts";
 import { type Face, IMAGE_TYPES, type Kind } from "../model.ts";
@@ -72,6 +72,35 @@ async function localCheckout(path: string): Promise<Checkout | null> {
   return checkoutAt(path).catch(() => null);
 }
 
+/** How the target HEAD relates to the HEAD a record was taken on. */
+type Drift =
+  | { readonly kind: "diverged" }
+  | { readonly kind: "docs-only" }
+  | { readonly kind: "code"; readonly changes: Changes };
+
+const isMarkdown = (path: string): boolean => path.toLowerCase().endsWith(".md");
+
+/** Whether everything between the record's HEAD and the target HEAD is Markdown, so what the record observed still holds. */
+async function driftSince(co: Checkout | null, repo: Repo, from: string, to: string): Promise<Drift> {
+  if (!(await isAncestor(co, repo, from, to))) return { kind: "diverged" };
+  const changes = await changedFiles(co, repo, from, to);
+  return changes.kind === "all" && changes.files.every(isMarkdown) ? { kind: "docs-only" } : { kind: "code", changes };
+}
+
+function driftNote(d: Drift | null): string {
+  if (d === null) return "";
+  switch (d.kind) {
+    case "diverged":
+      return "；当前 HEAD 不是采集 HEAD 的后代";
+    case "docs-only":
+      return "";
+    case "code": {
+      const shown = d.changes.files.slice(0, 5).join(", ");
+      return d.changes.files.length === 0 ? "" : `；之后改动 ${shown}${d.changes.files.length > 5 || d.changes.kind === "partial" ? " …" : ""}`;
+    }
+  }
+}
+
 /** Why the record is not valid for the current inputs, or null when it is. */
 async function judge(r: EvidenceRecord, rule: StepRule, outcome: TypedOutcome, mode: Mode, a: Anchors): Promise<{ kind: "stale" | "invalid"; reason: string } | null> {
   if (r.capture.kind === "run" && r.capture.completion.kind !== "exited") {
@@ -103,10 +132,14 @@ async function judge(r: EvidenceRecord, rule: StepRule, outcome: TypedOutcome, m
       if (head === null) return { kind: "invalid", reason: "没有目标 HEAD" };
       if (rule.anchor === "head") {
         if (r.checkouts.some((c) => c.head === head.sha)) return null;
-        const from = r.checkouts[0]?.head ?? "?";
-        const changed = a.local === null ? [] : await changedFiles(a.local.path, from, head.sha);
-        const tailNote = changed.length === 0 ? "" : `；之后改动 ${changed.slice(0, 5).join(", ")}${changed.length > 5 ? " …" : ""}`;
-        return { kind: "stale", reason: `采于 ${from.slice(0, 7)}，当前 HEAD ${head.sha.slice(0, 7)}${tailNote}` };
+        const co = r.checkouts.find((c) => {
+          const repo = parseRepo(c.repo);
+          return repo !== null && sameRepo(repo, head.repo);
+        });
+        const drift = co === undefined ? null : await driftSince(a.local ?? (await localCheckout(co.path)), head.repo, co.head, head.sha);
+        if (drift?.kind === "docs-only") return null;
+        const from = (co ?? r.checkouts[0])?.head ?? "?";
+        return { kind: "stale", reason: `采于 ${from.slice(0, 7)}，当前 HEAD ${head.sha.slice(0, 7)}${driftNote(drift)}` };
       }
       const base = a.base;
       if (base === null) return { kind: "invalid", reason: "无法确定 base" };

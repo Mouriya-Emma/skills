@@ -360,6 +360,26 @@ export async function isAncestorRemote(repo: Repo, ancestor: string, descendant:
   return status === "ahead" || status === "identical";
 }
 
+/** Paths touched between two commits; `partial` when the list may be missing some (a renamed file lists both its old and new path). */
+export type Changes = { readonly kind: "all" | "partial"; readonly files: readonly string[] };
+
+/** The compare API returns at most this many files for a range, however many changed. */
+const COMPARE_FILE_LIMIT = 300;
+
+/** Paths changed from `from` to `to` (`from` an ancestor of `to`), from the compare API. */
+export async function changedFilesRemote(repo: Repo, from: string, to: string): Promise<Changes> {
+  const pages = arr(await ghJson(["api", `repos/${repoKey(repo)}/compare/${from}...${to}?per_page=100`, "--paginate", "--slurp"]), "compare pages");
+  const files = pages.flatMap((p) =>
+    arr(field(obj(p, "compare"), "files"), "compare.files").flatMap((f) => {
+      const o = obj(f, "compare.file");
+      const name = str(field(o, "filename"), "compare.file.filename");
+      const previous = strOrNull(field(o, "previous_filename"), "compare.file.previous_filename");
+      return previous === null ? [name] : [name, previous];
+    }),
+  );
+  return { kind: files.length >= COMPARE_FILE_LIMIT ? "partial" : "all", files };
+}
+
 /** File content at a commit, or null when the path does not exist there. */
 export async function fileAt(repo: Repo, sha: string, path: string): Promise<string | null> {
   const r = await run(["gh", "api", `repos/${repoKey(repo)}/contents/${path.split("/").map(encodeURIComponent).join("/")}?ref=${sha}`, "-H", "Accept: application/vnd.github.raw"]);
