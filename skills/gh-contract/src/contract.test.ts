@@ -3,7 +3,7 @@ import { type CheckResult, checkEvidence } from "./evidence/check.ts";
 import type { EvidenceRecord } from "./evidence/record.ts";
 import { packComplete, parsePack, renderPack, toPack } from "./evidence/render.ts";
 import { clauseText } from "./fetch.ts";
-import { parseHeader, renderHeader } from "./gate.ts";
+import { gateEntries, latestValid, parseHeader, renderHeader } from "./gate.ts";
 import type { IssueData, PrData } from "./github.ts";
 import { codeRepo, type IssueBody, parseIssue, type TypedOutcome } from "./issue.ts";
 import { checkPlacement, checkTreePr } from "./pr.ts";
@@ -283,11 +283,52 @@ describe("contract references", () => {
 
 describe("gate header", () => {
   test("renders and parses the inputs a verdict observed", () => {
-    const h = { verdict: { kind: "fail" as const, gate: 3 }, head: "b".repeat(40), base: "main", issueRev: "2026-11-02T00:00:00Z", design: null };
-    const line = renderHeader(h);
-    expect(line).toBe(`Gate 结论 · review · FAIL@Gate3 · HEAD ${"b".repeat(40)} · base main · issue rev 2026-11-02T00:00:00Z · 设计 无`);
-    expect(parseHeader(`${line}\n\n发现……`)).toEqual(h);
+    const hFail = { verdict: { kind: "fail" as const, gate: null }, head: "b".repeat(40), base: "main", issueRev: "2026-11-02T00:00:00Z", design: null };
+    const lineFail = renderHeader(hFail);
+    expect(lineFail).toBe(`Gate 结论 · review · FAIL · HEAD ${"b".repeat(40)} · base main · issue rev 2026-11-02T00:00:00Z · 设计 无`);
+    expect(parseHeader(`${lineFail}\n\n发现……`)).toEqual(hFail);
+
+    const hLegacy = { verdict: { kind: "fail" as const, gate: 3 }, head: "b".repeat(40), base: "main", issueRev: "2026-11-02T00:00:00Z", design: null };
+    const lineLegacy = renderHeader(hLegacy);
+    expect(lineLegacy).toBe(`Gate 结论 · review · FAIL@Gate3 · HEAD ${"b".repeat(40)} · base main · issue rev 2026-11-02T00:00:00Z · 设计 无`);
+    expect(parseHeader(`${lineLegacy}\n\n发现……`)).toEqual(hLegacy);
+
     expect(parseHeader("Gate 结论 · review · PASS · HEAD abc · base main · issue rev x · 设计 无")).toBeNull();
+  });
+
+  test("a PASS verdict stays valid after HEAD advances to resolve merge conflicts, whereas FAIL goes stale", () => {
+    const h1 = "a".repeat(40);
+    const h2 = "c".repeat(40);
+    const iss = issueData();
+    const failHeader = renderHeader({ verdict: { kind: "fail", gate: null }, head: h1, base: "tree/acme-app-1", issueRev: iss.bodyRev, design: null });
+    const passHeader = renderHeader({ verdict: { kind: "pass" }, head: h1, base: "tree/acme-app-1", issueRev: iss.bodyRev, design: null });
+    const prAfterConflictMerge: PrData = {
+      ref: { repo, number: 77 },
+      title: "p",
+      state: "OPEN",
+      isDraft: false,
+      body: "Closes acme/app#7",
+      url: "u",
+      headRefOid: h2,
+      headRefName: "fix/7",
+      headRepo: repo,
+      baseRefName: "tree/acme-app-1",
+      baseRefOid: "b".repeat(40),
+      mergeable: "MERGEABLE",
+      defaultBranch: "main",
+      checks: [],
+      closingIssues: [],
+      files: [],
+      commits: [],
+      comments: [
+        { id: "c1", author: "r", createdAt: "2026-11-03T00:00:00Z", updatedAt: "2026-11-03T00:00:00Z", url: "u1", body: failHeader },
+        { id: "c2", author: "r", createdAt: "2026-11-03T01:00:00Z", updatedAt: "2026-11-03T01:00:00Z", url: "u2", body: passHeader },
+      ],
+    };
+    const entries = gateEntries(prAfterConflictMerge, iss);
+    expect(entries[0]?.stale).toEqual([`HEAD 已从 ${h1.slice(0, 7)} 变为 ${h2.slice(0, 7)}`]);
+    expect(entries[1]?.stale).toEqual([]);
+    expect(latestValid(entries)?.header.verdict).toEqual({ kind: "pass" });
   });
 });
 

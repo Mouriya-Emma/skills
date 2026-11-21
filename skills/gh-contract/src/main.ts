@@ -23,7 +23,7 @@ const HELP = `ghc — GitHub issue/PR 内容契约
   ghc ev attach <issue> --result N[,M] --shows "<看点>" [--face F] [--kind 改|新|删|保持] [--step S] [--checkout PATH]... <image|dir>...
   ghc ev check <issue|PR>                     证据是否齐全（issue：对当前检出 HEAD；PR：对 PR HEAD）
   ghc ev publish <PR|总体验收 issue>          发布证据包 comment，并写 evidence/<issue> 状态
-  ghc gate header <PR> --result PASS|FAIL@GateN [--design REF]
+  ghc gate header <PR> --result PASS|FAIL [--design REF]
   ghc gate list <PR>                          列出 review 结论及其是否仍有效
   ghc merge-ready <PR> --issue <ref> --head <sha>
   ghc merge-ready <树根> --tree

@@ -18,15 +18,20 @@ export async function prMergeReady(ref: Ref, o: { readonly issue: Ref; readonly 
   if (pr.headRefOid !== o.head) d.push(err("pr", `HEAD 是 ${pr.headRefOid}，授权的是 ${o.head}`));
   d.push(...checkIdentity(pr, o.issue).diagnostics, ...checkPlacement(pr, issue));
   const own = statusContext(o.issue);
+  const review = latestValid(gateEntries(pr, issue));
+  const passed = review !== null && review.header.verdict.kind === "pass";
   // Evidence statuses are keyed by issue; this PR's own one is read separately below.
-  for (const c of pr.checks) {
-    if (c.name.startsWith("evidence/")) continue;
-    if (c.state !== "success") d.push(err("checks", `${c.name}：${c.state}`));
+  if (!(passed && issue.parent !== null)) {
+    for (const c of pr.checks) {
+      if (c.name.startsWith("evidence/")) continue;
+      if (c.state !== "success") d.push(err("checks", `${c.name}：${c.state}`));
+    }
   }
-  const ev = await commitStatus(pr.ref.repo, pr.headRefOid, own);
+  const ev =
+    (await commitStatus(pr.ref.repo, pr.headRefOid, own)) ??
+    (passed && review.header.head !== pr.headRefOid ? await commitStatus(pr.ref.repo, review.header.head, own) : null);
   if (ev === null) d.push(err(own, "HEAD 上没有本 issue 的证据状态：先 ghc ev publish"));
   else if (ev.state !== "success") d.push(err(own, `HEAD 上证据状态 ${ev.state}：${ev.description}`));
-  const review = latestValid(gateEntries(pr, issue));
   if (review === null) d.push(err("review", "没有对当前输入有效的 review 结论"));
   else if (review.header.verdict.kind !== "pass") d.push(err("review", `当前有效的 review 结论不是 PASS：${review.comment.url}`));
   return d;

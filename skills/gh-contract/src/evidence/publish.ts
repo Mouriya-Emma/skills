@@ -1,6 +1,7 @@
 // `ghc ev check` and `ghc ev publish`: compute completeness for a target, render, post, set the commit status.
 
-import { getIssue, getPr, type IssueData, type MergedPr, mergedPrsInto, objectKind, type PrData, postComment, setStatus } from "../github.ts";
+import { gateEntries, latestValid } from "../gate.ts";
+import { commitStatus, getIssue, getPr, type IssueData, type MergedPr, mergedPrsInto, objectKind, type PrData, postComment, setStatus } from "../github.ts";
 import { checkoutAt, defaultBranchRef } from "../git.ts";
 import { codeRepo, type IssueBody, parseIssue } from "../issue.ts";
 import { type Diagnostic, err } from "../model.ts";
@@ -104,6 +105,19 @@ export async function runCheck(t: Target): Promise<{ check: CheckResult; problem
 export async function evCheck(ref: Ref): Promise<number> {
   const t = await resolve(ref);
   const { check, problems } = await runCheck(t);
+  if (!check.complete && t.kind === "pr" && problems.length === 0) {
+    const review = latestValid(gateEntries(t.pr, t.issue));
+    if (review !== null && review.header.verdict.kind === "pass") {
+      const own = statusContext(t.issue.ref);
+      const ev =
+        (await commitStatus(t.pr.ref.repo, t.pr.headRefOid, own)) ??
+        (review.header.head !== t.pr.headRefOid ? await commitStatus(t.pr.ref.repo, review.header.head, own) : null);
+      if (ev?.state === "success") {
+        process.stdout.write(`${refKey(t.issue.ref)}：review 已通过（@${review.header.head.slice(0, 7)}），无需重采证据\n`);
+        return 0;
+      }
+    }
+  }
   process.stdout.write(`${describe(check)}\n`);
   for (const p of problems) process.stdout.write(`${p.severity} ${p.where}: ${p.message}\n`);
   return check.complete && problems.length === 0 ? 0 : 1;
