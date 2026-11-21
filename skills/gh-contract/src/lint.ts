@@ -75,8 +75,8 @@ export async function lintTree(umbrella: Ref): Promise<Diagnostic[]> {
     if (!runnable.some((c) => sameRef(c.data.ref, r))) d.push(err(refKey(integ.data.ref), `组合对象 ${refKey(r)} 不是本树的实现 child`));
   }
   for (const c of runnable) {
-    if (c.body?.kind === "standard" && c.body.form !== "e2e" && !ib.outcomes.some((o) => o.via.some((v) => sameRef(v, c.data.ref)))) {
-      d.push(err(refKey(integ.data.ref), `${refKey(c.data.ref)} 的测试形态是 ${c.body.form}，必须出现在总体验收某一条结果的「经由」里`));
+    if (!ib.outcomes.some((o) => o.via.some((v) => sameRef(v, c.data.ref)))) {
+      d.push(err(refKey(integ.data.ref), `${refKey(c.data.ref)} 不在总体验收任何一条结果的「经由」里：每个实现 child 都要由某项功能 e2e 覆盖`));
     }
   }
   return d;

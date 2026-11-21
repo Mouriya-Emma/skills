@@ -93,13 +93,15 @@ describe("issue contract", () => {
     expect(errors(text)).toEqual(["issue 不写「## 验收标准」：怎样观察由采集证据的人在实现后决定，证据挂在预期结果上"]);
   });
 
-  test("a standalone issue must be e2e; inside a tree 集成 is allowed", () => {
+  test("a standalone issue must be e2e; a tree child never is, its feature e2e belongs to the integration issue", () => {
     expect(errors(standard({ form: "集成" }))).toContain("不在 issue 树里的 issue 只能是 e2e（当前 集成）：没有总体验收接手");
     expect(errors(standard({ form: "集成" }), true)).toEqual([]);
+    expect(errors(standard({ form: "e2e" }), true)).toEqual(["树内 child 不做 e2e：选 集成 或 最薄入口，功能 e2e 由总体验收 issue 在缓冲分支上做"]);
   });
 
-  test("iac only admits e2e", () => {
-    expect(errors(standard({ faces: ["iac"], form: "集成" }), true)).toContain("面 iac 不允许测试形态 集成，可选：e2e");
+  test("iac and agent-config have no thinnest entry, so a tree child on them is 集成", () => {
+    expect(errors(standard({ faces: ["iac"], form: "集成" }), true)).toEqual([]);
+    expect(errors(standard({ faces: ["agent-config"], form: "最薄入口" }), true)).toContain("面 agent-config 不允许测试形态 最薄入口，可选：e2e、集成");
   });
 
   test("crossing families needs a packaging reason, and is still warned", () => {

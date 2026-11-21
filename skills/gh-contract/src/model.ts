@@ -46,7 +46,6 @@ export function formsFor(face: Face): readonly Form[] {
   switch (face) {
     case "iac":
     case "agent-config":
-      return ["e2e"];
     case "gui":
       return ["e2e", "集成"];
     case "library":

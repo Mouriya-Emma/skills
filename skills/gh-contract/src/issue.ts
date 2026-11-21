@@ -257,6 +257,7 @@ export function parseIssue(text: string, ctx: IssueContext): Parsed<IssueBody> {
       const outcomes = typed(raw, ctx.repo, "standard", d);
       if (form !== null) {
         if (!ctx.hasParent && form !== "e2e") d.push(err("测试形态", `不在 issue 树里的 issue 只能是 e2e（当前 ${form}）：没有总体验收接手`));
+        if (ctx.hasParent && form === "e2e") d.push(err("测试形态", "树内 child 不做 e2e：选 集成 或 最薄入口，功能 e2e 由总体验收 issue 在缓冲分支上做"));
         for (const f of scope.faces) {
           if (!formsFor(f).includes(form)) d.push(err("测试形态", `面 ${f} 不允许测试形态 ${form}，可选：${formsFor(f).join("、")}`));
         }

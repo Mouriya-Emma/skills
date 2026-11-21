@@ -67,7 +67,7 @@ issue 写什么、PR 交什么、证据与合并前提怎样判定，在 `skill:
 | review diff | 上一项通过并提交之后（此时不采集证据） | issue 分支当前 HEAD |
 | issue 每条结果的证据 | review diff 通过之后 | 通过 review diff 的 HEAD，强度按 issue 的「测试形态」，不升级 |
 | review 证据和 PR | `ghc lint <PR>` 与 `ghc ev publish <PR>` 通过之后 | PR 当前 HEAD |
-| 总体验收 issue 每条结果的证据 | 树的 child 全部合入缓冲分支之后 | 缓冲分支当前提交 |
+| 总体验收 issue 每条功能结果的 e2e 证据（树里唯一的 e2e） | 树的 child 全部合入缓冲分支之后 | 缓冲分支当前提交 |
 
 - 构建、测试与证据采集由会话执行；证据的逐条采集可以作为一个切片派出，采集计划仍是会话开工前定下的那一份。两类 review 均由不继承本会话上下文的只读 reviewer 按 `skill://review-pr` 执行。
 - 切片不测，review 不重跑证据，合并后不重跑。
