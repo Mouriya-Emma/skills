@@ -1,6 +1,7 @@
 ---
 name: gh-contract
 description: ghc CLI：程序化读取与检查 GitHub issue/PR 内容——完整抓取、issue/PR/树 lint、按预期结果采集证据与发布证据包、review 结论首行、PR 合并与 tree PR 合并前提。writing-issue / writing-complex-issues / writing-pr / review-pr / delivering-issues 要求调用它的地方使用。
+hide: true
 ---
 
 # gh-contract
