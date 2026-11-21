@@ -1,6 +1,6 @@
 ---
 name: dns-check
-description: Check if a new VM/CT is discoverable via ARP scan and registered in the homelab CoreDNS on CT 312 `dns`. Use when a new VM or CT is created, or when DNS resolution for a LAN host fails.
+description: 检查局域网和 VPN 网络中的域名和 IP。
 allowed-tools: Bash, Read, Edit, Write, Grep, Glob, mcp__ssh-manager__ssh_execute
 ---
 
