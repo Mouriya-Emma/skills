@@ -1,6 +1,6 @@
 ---
 name: review-pr
-description: 分为 review diff（采证前只审代码 diff）与 review 证据和 PR（不重复确认 ghc 已检查项，重点审证据本身能否看出解决了 issue；通过后无条件合并到中转分支且不再重审重采），并裁决 issue 关闭条件。
+description: 分为 review diff（采证前只审代码 diff）与 review 证据和 PR（不重复确认 ghc 已检查项，重点审证据本身能否看出解决了 issue；通过后直接合并到中转分支且不再重审重采），并裁决 issue 关闭条件。
 ---
 
 # review-pr
@@ -29,7 +29,7 @@ description: 分为 review diff（采证前只审代码 diff）与 review 证据
 - **契约与所有权**：权威状态仍只有一个 owner；消费的契约按原样使用，没有在本地扩展、复制或重定义；调用方与旧路径切换完成，issue「不应残留」列出的内容已清除。
 - **无代码变更 issue**：diff 只改 issue「范围」列出的文件；改后文档各部分意图自洽，与关联文档语义一致，没有新旧并存的矛盾指导。
 
-**结论与处置**：一次列出全部代码发现（每个发现带 `file:line`、可观察后果和依据；区分已证实缺陷、疑点、范围外和未覆盖范围；没有问题时如实报告检查范围）。未通过时作者在原分支一次改完代码、重跑 repo 检查后再送 `review diff`；**通过后才进入证据采集**。
+**结论与处置**：一次列出全部代码发现（每个发现带 `file:line`、可观察后果和依据；区分已证实缺陷、疑点、范围外和未覆盖范围；没有问题时如实报告检查范围）。未通过时作者在原分支一次改完代码、重跑 repo 检查后再送 `review diff`；**通过后才进入证据采集**。结论 comment 发在 issue（PR 已开出时发在 PR thread），第一行是 `ghc gate diff <issue> --head <被审提交的 sha> --result <PASS|FAIL>` 的输出，原样放在开头。结论只对被审的那个提交有效：之后改了代码，就在新提交上重审。
 
 ### 二、review 证据和 PR
 
@@ -46,10 +46,10 @@ description: 分为 review diff（采证前只审代码 diff）与 review 证据
 
 证据是每条结果唯一的一次证明，reviewer 不重跑；怀疑某条证据时可以跑针对该疑点的探针，探针结果不替代作者证据。
 
-**通过即无条件合并，永不重审、永不重采：**
+**通过即合并，永不重审、永不重采：**
 
-- **如果 `review 证据和 PR` 通过（`PASS`），PR 无条件合并到中转分支（树内为缓冲分支 `tree/*`，独立 issue 为默认分支），并且必定不再 review、也不要再重新采集证据。**
-- 即使合并前中转分支已前进或存在冲突，也只解冲突并直接完成合并，**必定不再 review，也不要再重新采集证据**。
+- **如果 `review 证据和 PR` 通过（`PASS`），PR 直接合并到中转分支（树内为缓冲分支 `tree/*`，独立 issue 为默认分支），并且必定不再 review、也不要再重新采集证据。**
+- 即使合并前中转分支已前进或存在冲突，也只用 merge 把它合入分支、解冲突并直接完成合并，**必定不再 review，也不要再重新采集证据**；`PASS` 之后分支上不加别的提交。
 - **后续再发生什么问题（包括解冲突、合入中转分支或后续组合验收时暴露的任何问题），必须按 `skill://writing-issue` 开新的 sub-issue 和新的 PR，绝不回写或重审已通过的 PR。**
 
 ## 关闭资格
@@ -76,7 +76,7 @@ description: 分为 review diff（采证前只审代码 diff）与 review 证据
 
 | 裁决 | 条件 |
 |---|---|
-| Approve（`PASS`） | `review 证据和 PR` 通过；PR 无条件合入中转分支，必定不再 review、不再重采证据，后续问题一律开新的 sub-issue 和 PR |
+| Approve（`PASS`） | `review 证据和 PR` 通过；PR 直接合入中转分支，必定不再 review、不再重采证据，后续问题一律开新的 sub-issue 和 PR |
 | Request changes（`FAIL`） | 在原 issue 范围内，`review diff` 代码有缺陷，或 `review 证据和 PR` 的证据看不出解决了 issue / 正文说明不足；全部要求一次列出 |
 | Needs PR-thread response | 反馈只在 issue 或本地 handoff 里处理过；要求补 PR 评论 |
 | Needs issue split | 拼盘，或 parent 有连贯的剩余交付物 |

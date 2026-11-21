@@ -71,17 +71,17 @@ issue 写什么、PR 交什么、证据与合并前提怎样判定，在 `skill:
 
 - 构建、测试与证据采集由会话执行；证据的逐条采集可以作为一个切片派出，采集计划仍是会话开工前定下的那一份。两类 review 均由不继承本会话上下文的只读 reviewer 按 `skill://review-pr` 执行。
 - 切片不测，review 不重跑证据，合并后不重跑。
-- 代码问题在 `review diff` 阶段一次审出、一次改完，定稿之后才采证据。在 `review 证据和 PR` 通过之前，HEAD 一变，已采的证据对新 HEAD 失效；一旦 `review 证据和 PR` 通过，PR 无条件合入中转分支，必定不再 review，也不要再重新采集证据。
+- 代码问题在 `review diff` 阶段一次审出、一次改完，定稿之后才采证据。在 `review 证据和 PR` 通过之前，HEAD 一变，已采的证据和 `review diff` 的结论对新 HEAD 都失效；一旦 `review 证据和 PR` 通过，PR 直接合入中转分支，必定不再 review，也不要再重新采集证据。
 - 实现途中要确认某段行为，跑针对这个疑点的一次探针，不跑整套。
 
 ## 合并纪律
 
 - **一个 issue，一个分支，一个 PR。** PR 的 diff 只含本 issue 的改动；base 是树的缓冲分支（树内 child）或默认分支（独立 issue）。只有会话把切片整合进 issue 分支。
 - **实现方不审自己的代码与 PR。** Review 分为两种，均由不继承本会话上下文的只读 reviewer 按 `skill://review-pr` 执行，review 期间不向该分支推送：
-  1. **review diff**：切片整合、repo 检查通过并提交后立即进行，**此时不需要采集证据**。未通过则在原分支就地修代码、重跑 repo 检查，再送 `review diff`。
-  2. **review 证据和 PR**：`review diff` 通过后采集证据、开出 PR，并在 `ghc lint <PR>` 与 `ghc ev publish <PR>` 通过后送审。reviewer 不重复确认 `ghc` 已经检查过的东西，重点看证据本身能否看出来解决了 issue，并把结论 comment 发到 PR thread。未通过则在原分支补采证据或修正 PR 正文，按 `writing-pr` 发重试评论，再送 `review 证据和 PR`。
+  1. **review diff**：切片整合、repo 检查通过并提交后立即进行，**此时不需要采集证据**。reviewer 把结论 comment 发到 issue（PR 已开出时发到 PR thread），第一行是 `ghc gate diff <issue> --head <被审提交的 sha> --result PASS|FAIL` 的输出。未通过则在原分支就地修代码、重跑 repo 检查，再送 `review diff`。
+  2. **review 证据和 PR**：`review diff` 通过后采集证据、开出 PR，并在 `ghc lint <PR>` 与 `ghc ev publish <PR>` 通过后送审。reviewer 不重复确认 `ghc` 已经检查过的东西，重点看证据本身能否看出来解决了 issue，并把结论 comment 发到 PR thread。未通过则在原分支补采证据或修正 PR 正文，按 `writing-pr` 发重试评论，再送 `review 证据和 PR`；要改代码时先回到 `review diff`，新提交通过后在它上面重采证据。
 - **核实发现。** 会话逐条核实 reviewer 提出的发现；驳回或改判的写明判定、依据和核实所用的命令与输出。
-- **通过即无条件合并，永不重审、永不重采。** 一旦 `review 证据和 PR` 通过（`PASS`），该 PR **无条件合并到中转分支**（树内为缓冲分支 `tree/*`，独立 issue 为默认分支），**必定不再 review，也不要再重新采集证据**。别的 issue 合入或设计修正提交使 base 前进时，无冲突的直接合并；有冲突的把 base 整合进分支解完冲突后**直接合并，必定不再 review，也不要再重新采集证据**。`ghc merge-ready <PR> --issue <issue> --head <HEAD>` 退出码 0 后执行 `gh pr merge <N> --merge --match-head-commit <HEAD>`，合并后用实时状态确认。
+- **通过即合并，永不重审、永不重采。** 一旦 `review 证据和 PR` 通过（`PASS`），该 PR **直接合并到中转分支**（树内为缓冲分支 `tree/*`，独立 issue 为默认分支），**必定不再 review，也不要再重新采集证据**。别的 issue 合入或设计修正提交使 base 前进时，无冲突的直接合并；有冲突的用 merge 把 base 合入分支（不 rebase）、解完冲突后**直接合并，必定不再 review，也不要再重新采集证据**。`PASS` 之后分支上只加这种合并提交。`ghc merge-ready <PR> --issue <issue> --head <HEAD>` 退出码 0 后执行 `gh pr merge <N> --merge --match-head-commit <HEAD>`，合并后用实时状态确认；`ghc merge-ready` 核对的是：`PASS` 所在提交有 `review diff` 的 `PASS` 与证据，之后只新增了合并 base 的提交，checks 在要合并的 HEAD 上通过。
 - **后续问题必须开新的 sub-issue 和 PR。** `review 证据和 PR` 通过之后再发生什么问题（包括解冲突、合入中转分支或后续组合时暴露的缺陷、遗漏或回归），必须用 `skill://writing-issue` 开新的 sub-issue 和新的 PR，绝不在已通过的 PR 上重采或重审。单个 issue 的证据不证明组合，组合由总体验收负责。
 
 ### 树
@@ -122,13 +122,13 @@ stateDiagram-v2
 2. 读拥有该语义的文档、类型和例子全文；事实不明时经真实入口取证。
 3. 裁定。不为迁就已有实现而放宽契约。
 4. 写回源头：设计文档里直接替换对应章节并核对关联文档；在树根（没有树时是当前 issue）发设计修正 comment，写法按 `writing-complex-issues` 的 [comment-layers.md](../writing-complex-issues/references/comment-layers.md)；受影响的活跃 issue 同步替换正文里的预期结果、范围和契约引用。
-5. 设计修正的提交进入 base（树内是缓冲分支）。尚未通过 `review 证据和 PR` 的进行中分支整合它之后继续，依赖旧契约的未决 review 作废；已经通过 `review 证据和 PR` 的 PR 照常无条件合入中转分支，受设计修正影响的部分必须另开新的 sub-issue 和 PR。
+5. 设计修正的提交进入 base（树内是缓冲分支）。尚未通过 `review 证据和 PR` 的进行中分支整合它之后继续，依赖旧契约的未决 review 作废；已经通过 `review 证据和 PR` 的 PR 照常直接合入中转分支，受设计修正影响的部分必须另开新的 sub-issue 和 PR。
 
 ## 记录与恢复
 
-- 权威状态在 GitHub 和 git 上：issue 与 PR 的状态、PR thread 里的 review 结论与重试评论、设计修正 comment、证据包、各分支的提交。每次状态转移先落到这些地方。
+- 权威状态在 GitHub 和 git 上：issue 与 PR 的状态、issue 与 PR thread 里的 review 结论、重试评论、设计修正 comment、证据包、各分支的提交。每次状态转移先落到这些地方。
 - 本地计划是会话的索引与意图，不代替上述权威。内容：每个 issue 的状态、分支与 PR、证据计划、在跑的切片与 reviewer、尚未进入 base 的设计修正、下一步。
-- review 结论是否仍有效由 `ghc gate list <PR>` 与 `ghc merge-ready` 判定：未通过（`FAIL`）时 HEAD、base 分支、issue 正文修订任一改变即失效；一旦 `review 证据和 PR` 给出 `PASS`，结论即锁定有效，后续为合入中转分支解冲突产生的 HEAD 变动不再使其失效。
+- review 结论是否仍有效由 `ghc gate list <PR>` 与 `ghc merge-ready` 判定：未通过（`FAIL`）时 HEAD、base 分支、issue 正文修订任一改变即失效；一旦 `review 证据和 PR` 给出 `PASS`，结论即锁定有效，后续为合入中转分支解冲突产生的 HEAD 变动不再使其失效；`review diff` 的结论只对它审的那个提交有效。
 - 上下文压缩或换会话后，从实时状态重新分类，以权威来源修正本地计划后继续。接手别的会话留下的分支前，先确认那个会话已经结束；推送被拒时不强推。
 
 ## 不为可查的事停下

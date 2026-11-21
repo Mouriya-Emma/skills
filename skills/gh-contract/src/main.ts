@@ -5,8 +5,8 @@ import { evAttach, evRun } from "./evidence/capture.ts";
 import { evPlan } from "./evidence/plan.ts";
 import { evCheck, evPublish } from "./evidence/publish.ts";
 import { fetchAll } from "./fetch.ts";
-import { gateEntries, headerFor } from "./gate.ts";
-import { getIssue, getPr } from "./github.ts";
+import { diffEntries, diffHeaderFor, gateEntries, headerFor } from "./gate.ts";
+import { getIssue, getPr, objectKind } from "./github.ts";
 import { lint, printDiagnostics } from "./lint.ts";
 import { prMergeReady, treeMergeReady } from "./merge.ts";
 import { checkIdentity } from "./pr.ts";
@@ -23,8 +23,11 @@ const HELP = `ghc — GitHub issue/PR 内容契约
   ghc ev attach <issue> --result N[,M] --shows "<看点>" [--face F] [--kind 改|新|删|保持] [--step S] [--checkout PATH]... <image|dir>...
   ghc ev check <issue|PR>                     证据是否齐全（issue：对当前检出 HEAD；PR：对 PR HEAD）
   ghc ev publish <PR|总体验收 issue>          发布证据包 comment，并写 evidence/<issue> 状态
+  ghc gate diff <issue> --head <sha> --result PASS|FAIL [--design REF]
+                                              review diff 结论 comment 的第一行
   ghc gate header <PR> --result PASS|FAIL [--design REF]
-  ghc gate list <PR>                          列出 review 结论及其是否仍有效
+                                              review 证据和 PR 结论 comment 的第一行
+  ghc gate list <PR>                          列出两种 review 结论及其是否仍有效
   ghc merge-ready <PR> --issue <ref> --head <sha>
   ghc merge-ready <树根> --tree
 
@@ -123,6 +126,16 @@ async function main(argv: readonly string[]): Promise<number> {
       }
     }
     case "gate": {
+      if (sub === "diff") {
+        const f = parseFlags(rest, ["--result", "--design", "--head"], []);
+        const ref = parseRefArg(f.positional[0], "issue");
+        if ((await objectKind(ref)) !== "Issue") throw new UsageError("gate diff 的对象是 issue：review diff 审的是交付它的分支，不需要 PR");
+        const result = one(f, "--result");
+        const head = one(f, "--head");
+        if (result === null || head === null) throw new UsageError("gate diff 需要 --head <被审提交的 sha> 与 --result PASS|FAIL");
+        process.stdout.write(`${diffHeaderFor(await getIssue(ref), head, result, one(f, "--design"))}\n`);
+        return 0;
+      }
       const f = parseFlags(rest, ["--result", "--design"], []);
       const pr = await getPr(parseRefArg(f.positional[0], "PR"));
       const target = checkIdentity(pr, null).target;
@@ -140,6 +153,9 @@ async function main(argv: readonly string[]): Promise<number> {
           for (const e of gateEntries(pr, issue)) {
             const state = e.stale.length === 0 ? "有效" : `失效（${e.stale.join("；")}）`;
             process.stdout.write(`review\t${e.header.verdict.kind}\t${state}\t${e.comment.url}\n`);
+          }
+          for (const e of diffEntries([...issue.comments, ...pr.comments])) {
+            process.stdout.write(`review diff\t${e.header.verdict}\tHEAD ${e.header.head.slice(0, 7)}\t${e.comment.url}\n`);
           }
           return 0;
         }

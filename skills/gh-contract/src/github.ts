@@ -334,6 +334,25 @@ export async function mergeBaseRemote(repo: Repo, base: string, head: string): P
   return str(field(res, "sha"), "compare.merge_base_commit.sha");
 }
 
+export type CommitInfo = { readonly sha: string; readonly parents: number };
+/** `to` seen from `from`: whether `from` is an ancestor of (or equal to) `to`, and every commit reachable from `to` alone. */
+export type Comparison = { readonly contains: boolean; readonly commits: readonly CommitInfo[] };
+
+export async function compareCommits(repo: Repo, from: string, to: string): Promise<Comparison> {
+  const pages = arr(await ghJson(["api", `repos/${repoKey(repo)}/compare/${from}...${to}?per_page=100`, "--paginate", "--slurp"]), "compare pages");
+  const first = obj(pages[0], "compare");
+  const status = str(field(first, "status"), "compare.status");
+  const total = num(field(first, "total_commits"), "compare.total_commits");
+  const commits = pages.flatMap((p) =>
+    arr(field(obj(p, "compare"), "commits"), "compare.commits").map((c) => {
+      const o = obj(c, "compare.commit");
+      return { sha: str(field(o, "sha"), "compare.commit.sha"), parents: arr(field(o, "parents"), "compare.commit.parents").length };
+    }),
+  );
+  if (commits.length !== total) throw new EnvError(`compare ${from.slice(0, 7)}...${to.slice(0, 7)}: 只取到 ${commits.length}/${total} 个提交`);
+  return { contains: status === "ahead" || status === "identical", commits };
+}
+
 /** True when `ancestor` is reachable from `descendant` (or equal), using the compare API. */
 export async function isAncestorRemote(repo: Repo, ancestor: string, descendant: string): Promise<boolean> {
   const res = obj(await ghJson(["api", `repos/${repoKey(repo)}/compare/${ancestor}...${descendant}`, "--jq", "{status: .status}"]), "compare");

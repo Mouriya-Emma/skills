@@ -3,9 +3,10 @@ import { type CheckResult, checkEvidence } from "./evidence/check.ts";
 import type { EvidenceRecord } from "./evidence/record.ts";
 import { packComplete, parsePack, renderPack, toPack } from "./evidence/render.ts";
 import { clauseText } from "./fetch.ts";
-import { gateEntries, latestValid, parseHeader, renderHeader } from "./gate.ts";
-import type { IssueData, PrData } from "./github.ts";
+import { gateEntries, latestValid, parseDiffHeader, parseHeader, renderDiffHeader, renderHeader } from "./gate.ts";
+import type { Comment, Comparison, IssueData, PrData } from "./github.ts";
 import { codeRepo, type IssueBody, parseIssue, type TypedOutcome } from "./issue.ts";
+import { checkPrMergeReady } from "./merge.ts";
 import { checkPlacement, checkTreePr } from "./pr.ts";
 import type { Ref } from "./ref.ts";
 import { requirementFor } from "./requirements.ts";
@@ -174,6 +175,30 @@ const issueData = (body = ""): IssueData => ({
 
 const HEAD = "a".repeat(40);
 
+const prData = (over: Partial<PrData> = {}): PrData => ({
+  ref: { repo, number: 77 },
+  title: "p",
+  state: "OPEN",
+  isDraft: false,
+  body: "Closes acme/app#7",
+  url: "u",
+  headRefOid: HEAD,
+  headRefName: "fix/7",
+  headRepo: repo,
+  baseRefName: "tree/acme-app-1",
+  baseRefOid: "b".repeat(40),
+  mergeable: "MERGEABLE",
+  defaultBranch: "main",
+  checks: [],
+  closingIssues: [],
+  files: [],
+  commits: [],
+  comments: [],
+  ...over,
+});
+
+const comment = (id: number, createdAt: string, body: string): Comment => ({ id, author: "r", createdAt, url: `u${id}`, body });
+
 function recordFor(o: TypedOutcome, over: Partial<EvidenceRecord> = {}): EvidenceRecord {
   return {
     id: "r1",
@@ -296,39 +321,92 @@ describe("gate header", () => {
     expect(parseHeader("Gate 结论 · review · PASS · HEAD abc · base main · issue rev x · 设计 无")).toBeNull();
   });
 
+  test("a review diff verdict and a PR review verdict never read as each other", () => {
+    const diff = { verdict: "pass" as const, head: "b".repeat(40), issueRev: "2026-11-02T00:00:00Z", design: null };
+    const diffLine = renderDiffHeader(diff);
+    const prLine = renderHeader({ verdict: { kind: "pass" }, head: diff.head, base: "main", issueRev: diff.issueRev, design: null });
+    expect(parseDiffHeader(`${diffLine}\n\n发现……`)).toEqual(diff);
+    expect(parseHeader(diffLine)).toBeNull();
+    expect(parseDiffHeader(prLine)).toBeNull();
+  });
+
   test("a PASS verdict stays valid after HEAD advances to resolve merge conflicts, whereas FAIL goes stale", () => {
     const h1 = "a".repeat(40);
     const h2 = "c".repeat(40);
     const iss = issueData();
     const failHeader = renderHeader({ verdict: { kind: "fail", gate: null }, head: h1, base: "tree/acme-app-1", issueRev: iss.bodyRev, design: null });
     const passHeader = renderHeader({ verdict: { kind: "pass" }, head: h1, base: "tree/acme-app-1", issueRev: iss.bodyRev, design: null });
-    const prAfterConflictMerge: PrData = {
-      ref: { repo, number: 77 },
-      title: "p",
-      state: "OPEN",
-      isDraft: false,
-      body: "Closes acme/app#7",
-      url: "u",
+    const prAfterConflictMerge = prData({
       headRefOid: h2,
-      headRefName: "fix/7",
-      headRepo: repo,
-      baseRefName: "tree/acme-app-1",
-      baseRefOid: "b".repeat(40),
-      mergeable: "MERGEABLE",
-      defaultBranch: "main",
-      checks: [],
-      closingIssues: [],
-      files: [],
-      commits: [],
-      comments: [
-        { id: "c1", author: "r", createdAt: "2026-11-03T00:00:00Z", updatedAt: "2026-11-03T00:00:00Z", url: "u1", body: failHeader },
-        { id: "c2", author: "r", createdAt: "2026-11-03T01:00:00Z", updatedAt: "2026-11-03T01:00:00Z", url: "u2", body: passHeader },
-      ],
-    };
+      comments: [comment(1, "2026-11-03T00:00:00Z", failHeader), comment(2, "2026-11-03T01:00:00Z", passHeader)],
+    });
     const entries = gateEntries(prAfterConflictMerge, iss);
     expect(entries[0]?.stale).toEqual([`HEAD 已从 ${h1.slice(0, 7)} 变为 ${h2.slice(0, 7)}`]);
     expect(entries[1]?.stale).toEqual([]);
     expect(latestValid(entries)?.header.verdict).toEqual({ kind: "pass" });
+  });
+});
+
+describe("merge readiness after PASS", () => {
+  const passed = HEAD;
+  const merged = "c".repeat(40);
+  const child: IssueData = { ...issueData(), parent: { repo, number: 1 } };
+  const passLine = renderHeader({ verdict: { kind: "pass" }, head: passed, base: "tree/acme-app-1", issueRev: child.bodyRev, design: null });
+  const diffLine = (o: { verdict?: "pass" | "fail"; head?: string; issueRev?: string } = {}) =>
+    renderDiffHeader({ verdict: o.verdict ?? "pass", head: o.head ?? passed, issueRev: o.issueRev ?? child.bodyRev, design: null });
+  const passCommit = { sha: passed, parents: 1 };
+  const baseMerge = { sha: merged, parents: 2 };
+  const fromBase = { sha: "e".repeat(40), parents: 1 };
+  const extra = { sha: "d".repeat(40), parents: 1 };
+  // The PR passed review at `passed`, then moved to `merged`; evidence exists only on the commit that passed.
+  const problems = async (o: { diff?: Comment[]; pr?: Partial<PrData>; sincePass?: Comparison; sinceBase?: Comparison } = {}): Promise<string[]> => {
+    const d = await checkPrMergeReady(
+      prData({ headRefOid: merged, comments: [comment(2, "2026-11-03T02:00:00Z", passLine)], ...o.pr }),
+      { ...child, comments: o.diff ?? [comment(1, "2026-11-03T01:00:00Z", diffLine())] },
+      { issue: child.ref, head: merged },
+      {
+        commitStatus: async (_repo, sha) => (sha === passed ? { state: "success", description: "" } : null),
+        compare: async (_repo, from) =>
+          from === passed ? (o.sincePass ?? { contains: true, commits: [fromBase, baseMerge] }) : (o.sinceBase ?? { contains: true, commits: [passCommit, baseMerge] }),
+      },
+    );
+    return d.map((x) => x.message);
+  };
+
+  test("merging the base branch into a passed PR needs no new evidence and no new review", async () => {
+    expect(await problems()).toEqual([]);
+  });
+
+  test("a commit added after PASS that is not a merge of the base branch blocks the merge", async () => {
+    const got = await problems({
+      sincePass: { contains: true, commits: [fromBase, extra, baseMerge] },
+      sinceBase: { contains: true, commits: [passCommit, extra, baseMerge] },
+    });
+    expect(got).toHaveLength(1);
+    expect(got[0]).toContain(extra.sha.slice(0, 7));
+    expect(got[0]).not.toContain(fromBase.sha.slice(0, 7));
+  });
+
+  test("a branch rewritten after PASS blocks the merge", async () => {
+    expect(await problems({ sincePass: { contains: false, commits: [baseMerge] } })).toHaveLength(1);
+  });
+
+  test("the commit that passed must carry a review diff PASS given against the same issue revision", async () => {
+    expect(await problems({ diff: [] })).toHaveLength(1);
+    expect(await problems({ diff: [comment(1, "2026-11-03T01:00:00Z", diffLine({ head: "f".repeat(40) }))] })).toHaveLength(1);
+    expect(await problems({ diff: [comment(1, "2026-11-03T01:00:00Z", diffLine({ issueRev: "2026-11-01T00:00:00Z" }))] })).toHaveLength(1);
+    const failedLater = [comment(1, "2026-11-03T01:00:00Z", diffLine()), comment(3, "2026-11-03T03:00:00Z", diffLine({ verdict: "fail" }))];
+    expect(await problems({ diff: failedLater })).toHaveLength(1);
+    expect(await problems({ diff: [...failedLater].reverse() })).toHaveLength(1);
+  });
+
+  test("a review diff posted on the PR thread counts as well as one on the issue", async () => {
+    const onPr = [comment(1, "2026-11-03T01:00:00Z", diffLine()), comment(2, "2026-11-03T02:00:00Z", passLine)];
+    expect(await problems({ diff: [], pr: { comments: onPr } })).toEqual([]);
+  });
+
+  test("a tree child that passed review still needs its checks green on the HEAD being merged", async () => {
+    expect(await problems({ pr: { checks: [{ name: "check", state: "failure" }] } })).toEqual(["check：failure"]);
   });
 });
 

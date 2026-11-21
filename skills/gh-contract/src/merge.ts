@@ -1,40 +1,61 @@
 // `ghc merge-ready`: the preconditions for merging a PR that delivers one issue, or for merging an issue tree into the default branch.
 
-import { branchHead, commitStatus, getIssue, getPr, type IssueData, type MergedPr, prsFrom } from "./github.ts";
+import { branchHead, type Comparison, commitStatus, compareCommits, getIssue, getPr, type IssueData, type MergedPr, type PrData, prsFrom } from "./github.ts";
 import { outcomesDigest, parseIssue } from "./issue.ts";
 import { type Diagnostic, err } from "./model.ts";
 import { checkIdentity, checkPlacement, checkTreePr } from "./pr.ts";
 import { bufferMerge, integrationMerges, statusContext } from "./evidence/publish.ts";
 import { packComplete, parsePack } from "./evidence/render.ts";
-import { gateEntries, latestValid } from "./gate.ts";
+import { diffEntries, diffReviewProblem, gateEntries, latestValid, postPassProblem } from "./gate.ts";
 import { type Ref, type Repo, refKey, repoKey, sameRef, sameRepo, treeBranch } from "./ref.ts";
 
-export async function prMergeReady(ref: Ref, o: { readonly issue: Ref; readonly head: string }): Promise<Diagnostic[]> {
-  const pr = await getPr(ref);
-  const issue = await getIssue(o.issue);
+export type MergeDeps = {
+  readonly commitStatus: (repo: Repo, sha: string, context: string) => Promise<{ readonly state: string; readonly description: string } | null>;
+  readonly compare: (repo: Repo, from: string, to: string) => Promise<Comparison>;
+};
+
+/**
+ * A PASS stays valid when the branch moves afterwards, so what it approved is pinned here instead: the PASS commit
+ * carries the evidence and a `review diff` PASS, and everything added since is a merge of the base branch.
+ */
+export async function checkPrMergeReady(pr: PrData, issue: IssueData, o: { readonly issue: Ref; readonly head: string }, deps: MergeDeps): Promise<Diagnostic[]> {
   const d: Diagnostic[] = [];
   if (pr.state !== "OPEN") d.push(err("pr", `PR 状态是 ${pr.state}`));
   if (pr.mergeable !== "MERGEABLE") d.push(err("pr", `mergeable = ${pr.mergeable}`));
   if (pr.headRefOid !== o.head) d.push(err("pr", `HEAD 是 ${pr.headRefOid}，授权的是 ${o.head}`));
   d.push(...checkIdentity(pr, o.issue).diagnostics, ...checkPlacement(pr, issue));
   const own = statusContext(o.issue);
-  const review = latestValid(gateEntries(pr, issue));
-  const passed = review !== null && review.header.verdict.kind === "pass";
   // Evidence statuses are keyed by issue; this PR's own one is read separately below.
-  if (!(passed && issue.parent !== null)) {
-    for (const c of pr.checks) {
-      if (c.name.startsWith("evidence/")) continue;
-      if (c.state !== "success") d.push(err("checks", `${c.name}：${c.state}`));
-    }
+  for (const c of pr.checks) {
+    if (c.name.startsWith("evidence/")) continue;
+    if (c.state !== "success") d.push(err("checks", `${c.name}：${c.state}`));
   }
+  const review = latestValid(gateEntries(pr, issue));
+  const pass = review !== null && review.header.verdict.kind === "pass" ? review.header : null;
   const ev =
-    (await commitStatus(pr.ref.repo, pr.headRefOid, own)) ??
-    (passed && review.header.head !== pr.headRefOid ? await commitStatus(pr.ref.repo, review.header.head, own) : null);
+    (await deps.commitStatus(pr.ref.repo, pr.headRefOid, own)) ??
+    (pass !== null && pass.head !== pr.headRefOid ? await deps.commitStatus(pr.ref.repo, pass.head, own) : null);
   if (ev === null) d.push(err(own, "HEAD 上没有本 issue 的证据状态：先 ghc ev publish"));
   else if (ev.state !== "success") d.push(err(own, `HEAD 上证据状态 ${ev.state}：${ev.description}`));
   if (review === null) d.push(err("review", "没有对当前输入有效的 review 结论"));
-  else if (review.header.verdict.kind !== "pass") d.push(err("review", `当前有效的 review 结论不是 PASS：${review.comment.url}`));
+  else if (pass === null) d.push(err("review", `当前有效的 review 结论不是 PASS：${review.comment.url}`));
+  else {
+    const diff = diffReviewProblem(diffEntries([...issue.comments, ...pr.comments]), pass);
+    if (diff !== null) d.push(err("review diff", diff));
+    if (pass.head !== pr.headRefOid) {
+      const added = postPassProblem(
+        pass.head,
+        await deps.compare(pr.ref.repo, pass.head, pr.headRefOid),
+        await deps.compare(pr.ref.repo, pr.baseRefOid, pr.headRefOid),
+      );
+      if (added !== null) d.push(err("pr", added));
+    }
+  }
   return d;
+}
+
+export async function prMergeReady(ref: Ref, o: { readonly issue: Ref; readonly head: string }): Promise<Diagnostic[]> {
+  return checkPrMergeReady(await getPr(ref), await getIssue(o.issue), o, { commitStatus, compare: compareCommits });
 }
 
 /**
