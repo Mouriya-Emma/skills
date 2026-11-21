@@ -1,6 +1,7 @@
 ---
 name: internal-services
 description: Inventory and count internal services across homelab-tf, pve-vctcn and both Komodo Cores (what runs where, who declares it, which are retired), and refresh this skill when the inventory guidance goes stale. Recompute totals from live sources; operating a service belongs to its own skill.
+hide: true
 ---
 
 # Internal services inventory

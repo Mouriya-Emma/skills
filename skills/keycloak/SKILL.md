@@ -2,6 +2,7 @@
 name: keycloak
 description: Guide vctcn-owned Keycloak SSO/OIDC/SAML integration, realms, clients, users, and protocol mappers. Includes read-only Admin REST inspection. Keycloak stays in IaC because its realm/client/user configuration is applied after deploy; durable changes go through the pve-vctcn workspace. Use internal-services for global inventory.
 allowed-tools: Bash, Read, Write, Edit, Grep, Glob, WebFetch, mcp__ssh-manager__ssh_execute
+hide: true
 ---
 
 # Keycloak SSO integration

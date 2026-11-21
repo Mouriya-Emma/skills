@@ -2,6 +2,7 @@
 name: dns-check
 description: 检查局域网和 VPN 网络中的域名和 IP。
 allowed-tools: Bash, Read, Edit, Write, Grep, Glob, mcp__ssh-manager__ssh_execute
+hide: true
 ---
 
 # LAN & NetBird name/IP check

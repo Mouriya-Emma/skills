@@ -1,6 +1,7 @@
 ---
 name: iac-projects
 description: 定位个人基础设施的 IaC repo（homelab-tf、pve-vctcn、nekoringo-iac、oracle-iac）：VM/CT、网络、DNS、mesh、存储、根信任、Komodo 安装，以及按归属判据留在 IaC 的 app；从 app 或 workload 上下文把基础设施需求交给 IaC repo 的 issue 写法。归 km 的 app 不走这里。
+hide: true
 ---
 
 # iac-projects：IaC repo 路标
@@ -8,6 +9,13 @@ description: 定位个人基础设施的 IaC repo（homelab-tf、pve-vctcn、nek
 IaC 只管机器和平台：VM/CT 生命周期、磁盘、网卡、主机基线（含 Docker 引擎、主机 DNS 与 mesh）、网络与 DNS、公网入口对象、根信任、Komodo Core 与 Periphery 的安装，以及按 `personal-infra-routing` 规则的归属判据必须留在 IaC 的 app。其余 app 归 km（`km` skill），不在 IaC 里声明。
 
 本 skill 只是路标。定位到 repo 后先读它的 `AGENTS.md`，跟着它指向的 rules/skills 走；记忆与 repo 现行文档冲突时以文档为准。
+
+## 下一层 skill
+
+| 任务 | skill |
+|---|---|
+| 局域网（`hb.lan`）与 NetBird VPN（`mouriya.lan`）的域名和 IP 检查；新建 VM/CT 后的可发现性 | `skill://dns-check` |
+| Keycloak realm、client、user、mapper 与 SSO/OIDC/SAML 接入 | `skill://keycloak` |
 
 ## repo
 

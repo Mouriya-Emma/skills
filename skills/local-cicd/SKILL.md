@@ -1,6 +1,7 @@
 ---
 name: local-cicd
 description: Self-hosted CI on GARM (resident LXD on VM 181, edge Incus overflow, arm64 Incus on Oracle A1) and the private registry registry.237575.xyz. Use to onboard a repo to GARM pools, write mesh-aware workflows, build and push images, publish or consume release artifacts, handle concurrency on shared delivery state, and pick evidence per delivery shape. Deploying to Komodo itself is in the km skill.
+hide: true
 ---
 
 # local-cicd: self-hosted CI/CD 体系

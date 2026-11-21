@@ -3,6 +3,7 @@ name: km
 description: >-
   Komodo (km) for homelab and trading apps. Use to onboard a new app, move an app out of IaC, release an image or apply declarations through GitHub webhooks into km, deploy/restart/stop/destroy Stacks, debug containers, run ResourceSync/Action/Procedure, run Komodo Build/Repo, clean Docker disk (prune images/volumes), back up or restore Core metadata, call the API for CLI gaps, and manage Core connections/profiles. Read the matching reference before any command.
 allowed-tools: Bash, Read, Write, Edit, Glob
+hide: true
 ---
 
 # km：Komodo 上的 app

@@ -1,6 +1,7 @@
 ---
 name: homelab-trading
 description: Workload routing for VM 130 trading-agent stacks, moomoo OpenD, the trading Komodo Core's declarations, and the homelab-trading secrets/sync workflow. VM 130, SR-IOV, DNS, mesh and the trading Komodo installation belong to IaC (iac-projects); Stack operations use the km skill with -p trading.
+hide: true
 ---
 
 # homelab-trading — workload-only signpost
@@ -18,7 +19,7 @@ description: Workload routing for VM 130 trading-agent stacks, moomoo OpenD, the
 
 This repo owns its trading ResourceSync object as well as the declarations it points at (authority table in the `km` skill); read `km -p trading ls syncs -f json` for the live object. The Sync is created once by the operator with an `admin` key, because Komodo's non-admin CI identity cannot create one; the workflow then updates its fields. `trading-agent` is the VM name, not a Compose service name.
 
-Read repo-local `.claude/rules/{topology,dev-conventions,secrets-handling,deploy-plane,pr-evidence}.md`. For cross-stack conventions use `.claude/skills/stack-baseline/`; OpenD deployment/SMS/account/restart specifics use `.claude/skills/opend/`. Client quote connections use global `opend-client`.
+Read repo-local `.claude/rules/{topology,dev-conventions,secrets-handling,deploy-plane,pr-evidence}.md`. For cross-stack conventions use `.claude/skills/stack-baseline/`; OpenD deployment/SMS/account/restart specifics use `.claude/skills/opend/`. Client quote connections use `skill://opend-client`.
 
 ## Ownership outside this repo
 

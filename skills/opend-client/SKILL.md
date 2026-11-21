@@ -1,6 +1,7 @@
 ---
 name: opend-client
 description: Connect to moomoo OpenD on VM 130 for quotes/klines/basicinfo; handle RSA InitConnect (required for non-loopback trade) and check sha error using the persisted PEM. Includes recorded market boundaries (TW unsupported). Client-side only; deployment, SMS, passwords, console, and restart policy belong to homelab-trading's opend skill.
+hide: true
 ---
 
 # opend-client
