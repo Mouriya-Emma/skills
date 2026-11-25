@@ -1,0 +1,76 @@
+---
+name: image-share
+description: Upload local image evidence to img.237575.xyz for a public URL usable in GitHub PRs. The installed helper resolves auth from env or the vctcn-edge OpenBao path; callers supply the image path, not credentials. Not for non-image assets or permanent archival.
+---
+
+# image-share
+
+Upload screenshots for PR bodies, comments, or reviews across the operator's repos. Anyone with the URL can read the image: inspect it for secrets, private data, and unintended screen content before upload. Hosting is operator-owned convenience storage, not an archival or availability guarantee.
+
+## Installed call path
+
+```bash
+<skill-dir>/scripts/upload.sh [-m|--markdown] <path-to-image>
+```
+
+`<skill-dir>` is the directory containing this SKILL.md; the examples below hold that path in `IMAGE_SHARE`. The installed `scripts/upload.sh` is the executable upload implementation, not a wrapper or a delegate to another skill directory. Invoke it directly from the installed skill directory. The npx-managed package carries the helper; credentials and response-cache files remain external. If the helper is missing or not executable, repair the skill installation rather than moving credentials or adding another wrapper.
+
+Success writes exactly one stdout line: a bare `https://img.237575.xyz/media/<key>` URL, or `![](<URL>)` with `-m`/`--markdown`. Diagnostics go to stderr. Exit codes: `0` success (also `--help`), `1` runtime failure, `2` usage error. The exit code, not a captured string, decides upload success.
+
+```bash
+IMAGE_SHARE=<skill-dir>/scripts/upload.sh
+# Use the screenshot path produced by your browser/evidence workflow.
+if URL=$("$IMAGE_SHARE" ./evidence/screenshot.png); then
+  printf '%s\n' "$URL"
+  curl -fsSI "$URL"
+fi
+
+# Multiple screenshots; stop rather than embedding a failed upload.
+for f in ./evidence/screens/*.png; do
+  "$IMAGE_SHARE" -m "$f" || break
+done
+```
+
+Before embedding, verify anonymous HTTP 200 with an image content type and view the returned image. An upload API success alone does not prove public rendering. Keep the URL with the evidence so a duplicate upload can reuse it. Use `writing-pr` for PR evidence placement; these externally hosted images do not require a repository SHA pin. Images committed to a repo still follow its SHA-pin rule.
+
+## Authentication and dependencies
+
+The helper resolves the password in order:
+
+1. Nonempty `ZERO721_PASSWORD` in the environment.
+2. The `vctcn-edge` workload repo's OpenBao ops path: `bao-exec run --path kv/mouriya-s-lab/vctcn-edge/ops -- printenv VCTCN_EDGE_ZERO721_RUNTIME_PASSWORD`. That field is the retained admin's current login password; the repo's `VCTCN_EDGE_ZERO721_ADMIN_PASSWORD` only seeds an empty database and does not log in to the existing one. `bao-exec` uses the workstation OpenBao identity (`BAO_ADDR`, `BAO_EXEC_AUTH`, `~/.config/bao-exec/{role_id,secret_id}`); the value stays inside `bao-exec` and the helper's pipe.
+
+It does not use Keychain or prompt for credentials. Follow `credentials-from-owning-source`: read through `bao-exec` without exposing plaintext; do not ask the user to paste a password, print the value, or create a second secret store.
+
+| Variable | Default / purpose |
+|---|---|
+| `ZERO721_BASE_URL` | `https://img.237575.xyz` |
+| `ZERO721_EMAIL` | `mouriya@vctcn.local` |
+| `ZERO721_PASSWORD` | Explicit environment override from an authorized secret source |
+| `ZERO721_OPENBAO_PATH` | `kv/mouriya-s-lab/vctcn-edge/ops` |
+
+All paths require `curl` and `jq`; the OpenBao path additionally requires `bao-exec` and a working workstation identity. A missing tool, unreadable path or failed login is a local integration failure, not a reason to hand-feed credentials.
+
+## Requests, observations, and recovery
+
+The helper logs in per invocation with `POST /api/auth/login`, JSON `{name: <email>, password_raw: <password>}`, then uploads via `PUT /api/media/insert?name=<encoded filename>` with Bearer auth and multipart `file`. It accepts either a raw key or JSON `{key: ...}` and constructs `/media/<key>`. Login timeout is 15 seconds; upload timeout is 120 seconds. Response files are created under `${XDG_CACHE_HOME:-$HOME/.cache}/image-share` and removed on handled success/failure paths; do not publish response-cache contents.
+
+| Failure / observation | Action |
+|---|---|
+| Missing/unreadable file | Correct the evidence path. The helper checks file readability, not whether bytes are an image. |
+| OpenBao/tooling failure | The helper exits non-zero naming `bao-exec` and the path. Check `BAO_ADDR`, the workstation identity, the path and its policies without printing the value. |
+| `login failed` | The credential the helper used is not the account's current password. The `zero721` Stack does not interpolate `VCTCN_EDGE_ZERO721_RUNTIME_PASSWORD`, so no Stack deployment changes it. Check the selected host/email, then confirm the password that account actually uses on the 0721 side and make `kv/mouriya-s-lab/vctcn-edge/ops` match it — write the value there with an `admin` token, value on stdin (`bao kv patch kv/mouriya-s-lab/vctcn-edge/ops VCTCN_EDGE_ZERO721_RUNTIME_PASSWORD=-`). The helper neither clears Keychain nor performs rotation. |
+| `already uploaded` | Reuse the saved URL. The error does not recover it. If genuinely new evidence is needed, capture it again; the helper's re-encode hint is not a guarantee against server-side deduplication. |
+| Other upload HTTP error | Inspect the diagnostic privately; do not capture stderr as the URL. A 413/size rejection is likely the image-size limit: 0721's default `upload.image_size_limit` is 8 MiB (Axum global 16 MiB, NPM body 25 MiB), but `Config.toml` persists in the 0721 data directory on VM 180 and may override it — shrink the image or check the live config. |
+| Public URL is 404/non-image or does not render | Do not claim evidence uploaded successfully; investigate delivery/rendering. |
+
+Transcoding, deduplication, and key format are server behavior, not promises enforced by this client. Verify returned content instead of assuming a WebP conversion, size reduction, fixed key length, or token lifetime.
+
+## Service boundary
+
+This skill uploads evidence; it does not administer 0721. The 0721 deployment is the Komodo Stack `zero721` declared in `mouriya-s-lab/vctcn-edge` (`komodo/syncs/zero721.toml`, `stacks/zero721/`), running on Server `vctcn-app1`; change or debug it through `km`. Two different value groups feed it:
+
+- This skill's login password is `VCTCN_EDGE_ZERO721_RUNTIME_PASSWORD` in `kv/mouriya-s-lab/vctcn-edge/ops`, read by the helper through `bao-exec`; the `zero721` Stack does not interpolate it.
+- The `zero721` Stack's own values (`VCTCN_EDGE_ZERO721_ADMIN_*`, `VCTCN_EDGE_ZERO721_JWT_SECRET`) are fields of `kv/mouriya-s-lab/vctcn-edge/runtime`, which the Stack's `compose_cmd_wrapper` reads at deploy time.
+
+The `img.237575.xyz` proxy host is NPM runtime state on CT 171. VM, network and ingress changes go through `iac-projects`.

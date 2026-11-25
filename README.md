@@ -1,6 +1,6 @@
 # Skills
 
-本仓库的 skill 定义位于 `skills/<name>/SKILL.md`。安装、更新、查看和移除均使用 [`npx skills`](https://github.com/vercel-labs/skills)，不要手工复制到 agent 的 skill 目录或直接修改已安装的副本；源码以本仓库为准。
+本仓库的 skill 定义位于 `skills/shared/<name>/SKILL.md`（多个 harness 共用）和 `skills/omp/<name>/SKILL.md`（只属于 omp）。安装、更新、查看和移除均使用 [`npx skills`](https://github.com/vercel-labs/skills)，不要手工复制到 agent 的 skill 目录或直接修改已安装的副本；源码以本仓库为准。
 
 ## 安装
 

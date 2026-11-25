@@ -1,0 +1,77 @@
+# Komodo endpoint inventory
+
+This reference owns connection inventory, not service lifecycle operations (those are in `../SKILL.md` and its other references).
+
+## Files and authority
+
+Helpers below live in the km skill directory, the parent of this `references/` directory; the commands hold that directory in `KM_SKILL`. The sole endpoint inventory is `${XDG_CONFIG_HOME:-$HOME/.config}/komodo/endpoints`, outside all skill installation directories. All three helpers use that location directly; there is no fallback inventory inside the installed package. The generated CLI config remains `~/.config/komodo/komodo.cli.toml`.
+
+| Path | Contract |
+|---|---|
+| `${XDG_CONFIG_HOME:-$HOME/.config}/komodo/endpoints/<name>.toml` | Durable private local connection inventory; `host`, `key`, `secret` fields, one file per Core |
+| `bin/list.sh` | Prints endpoint name and host, never key/secret; fails when inventory is empty. Known limitation (komodo-skills#3): it only extracts double-quoted `host = "…"` values; a TOML literal string (`host = '…'`, as in `nekoringo.toml`) prints an empty host — use `km -p <name> config` to confirm the host. |
+| `bin/show.sh <name>` | Prints fixed, shell-escaped Bash `NAME`, `HOST`, `KEY`, `SECRET` assignments for one endpoint; requires Python 3.11+ and rejects invalid TOML or missing/empty/nonstring/NUL-containing required fields |
+| `bin/render-config.sh` | Sole writer of `~/.config/komodo/komodo.cli.toml`; emits one named profile per endpoint |
+
+The endpoint inventory is **not automatically synced** from anywhere. Register only a Core that actually exists, from the deployment that owns it: homelab and trading Cores are installed by `homelab-tf` (`komodo_core_hosts`), the Nekoringo Core by `nekoringo-iac/apps/komodo`. Resolve host and credentials from that deployment's secret source — the OpenBao `ops` path of the owning repo, read through `bao-exec` (`kv/mouriya-devops/homelab-tf/ops` for both homelab Cores), not from the user's clipboard and not from a decrypted file. Do not create a speculative connection or embed secrets in Markdown/committed code. Keep the external endpoint directory private (mode `0700`, endpoint files `0600`), outside repositories and npx-managed skill payloads. Installing or updating the skill does not migrate, populate or overwrite this inventory.
+
+Known routing: `homelab` is homelab-app1 / VM 110; `trading` is trading-agent / VM 130; `nekoringo` is an independent Core at `http://218.33.108.254:9120`. Check each profile with a real read (`km -p <name> ls syncs`) before relying on it; a registered profile can still return 401.
+
+## List and select
+
+```bash
+KM_SKILL=<km-skill-dir>
+bash "$KM_SKILL/bin/list.sh"
+km -p homelab config
+km -p trading config
+```
+
+`km config` is sanitized by default; do not add `--unsanitized` in captured output. Every real command passes `-p <name>` **before the command**. There is no global selection to change, so concurrent shells can use different Cores without rewriting configuration. The generated `default_profile` is the first sorted endpoint and is only a CLI fallback, not target-selection policy.
+
+## Add, change or remove a connection
+
+1. Identify the deployment that owns the Core and its actual credential source. The `iac-projects` skill covers homelab-tf and pve-vctcn; the Nekoringo Core belongs to `nekoringo-iac/apps/komodo`; for any other Core verify its deployment repository first. If the Core does not exist yet, route provisioning there rather than registering an imagined endpoint.
+2. Edit the corresponding `${XDG_CONFIG_HOME:-$HOME/.config}/komodo/endpoints/<name>.toml` through the authorized credential path. Its filename becomes the profile name. Remove an endpoint only when its retirement is established; check consumers before removing their connection.
+3. Render after inventory changes:
+
+   ```bash
+   bash "$KM_SKILL/bin/render-config.sh"
+   ```
+
+4. Expect a profile-name list, then inspect the selected sanitized config and make a read-only connection check:
+
+   ```bash
+   core=homelab  # replace with the endpoint just maintained
+   km -p "$core" config
+   km -p "$core" ls servers
+   ```
+
+A successful render proves local generation, not authentication or reachability. The Server listing must come from the intended Core.
+
+The renderer checks that each file contains `host`, `key` and `secret` assignment lines; this is **not full TOML or nonempty-value validation**. It writes a temporary sibling and replaces the config only after generation succeeds. Empty inventory or missing key lines fail without replacing the existing config. Repair the inventory and rerender; never patch the generated output to hide the failure.
+
+## Supply REST credentials without displaying them
+
+`api.md` consumes `show.sh`; ordinary CLI calls consume the rendered profiles. The helper emits secrets, so capture its output within the request shell, with shell tracing disabled, rather than invoking it as a visible standalone tool call.
+
+```bash
+bash <<'BASH'
+(
+  set +x
+  KM_SKILL=<km-skill-dir>
+  endpoint_fields=$(bash "$KM_SKILL/bin/show.sh" homelab) || exit
+  eval "$endpoint_fields" || exit
+  # Use HOST / KEY / SECRET here for the scoped API request; do not echo them.
+)
+BASH
+```
+
+The helper requires **Python 3.11+** on `PATH`, using stdlib `tomllib` to decode TOML strings and `shlex.quote` to encode each assignment value safely for Bash. It emits only the fixed `NAME`, `HOST`, `KEY`, `SECRET` assignments after all required fields pass validation. Quotes, whitespace, shell metacharacters and embedded/trailing newlines remain literal data; NUL is rejected because Bash variables cannot represent it. No manual judgment of whether credentials are shell-safe is needed. Parsing errors report no TOML source text, and there is no unescaped output mode.
+
+Use this trusted local helper as the only source of evaluated assignments; never evaluate an arbitrary file or response. Run the example explicitly in Bash, keep tracing disabled and check both capture and evaluation before any request. The subshell keeps credentials scoped and prevents accidental reuse for another Core. Encoding preserves data; it does not make unsupported HTTP header characters valid for the downstream API.
+
+## Recovery
+
+- **Missing profile:** list endpoint names first. If the endpoint exists, rerender; if it does not, resolve the IaC registration/credential gap. Do not switch to a different Core merely to make a command run.
+- **`show.sh` failure:** establish Python 3.11+ availability or correct the explicit name/TOML/required fields through the authorized source; no request should proceed with stale variables. Do not print the file or parser source diagnostics.
+- **Authentication/connectivity failure after rendering:** verify the selected sanitized host and owning IaC/secret path. Rendering cannot repair a network or credential problem; do not ask the user to paste keys.
