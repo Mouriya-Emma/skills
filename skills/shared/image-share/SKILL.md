@@ -13,7 +13,7 @@ Upload screenshots for PR bodies, comments, or reviews across the operator's rep
 <skill-dir>/scripts/upload.sh [-m|--markdown] <path-to-image>
 ```
 
-`<skill-dir>` is the directory containing this SKILL.md; the examples below hold that path in `IMAGE_SHARE`. The installed `scripts/upload.sh` is the executable upload implementation, not a wrapper or a delegate to another skill directory. Invoke it directly from the installed skill directory. The npx-managed package carries the helper; credentials and response-cache files remain external. If the helper is missing or not executable, repair the skill installation rather than moving credentials or adding another wrapper.
+`<skill-dir>` is the directory containing this SKILL.md; the examples below hold that path in `IMAGE_SHARE`. The installed `scripts/upload.sh` is the executable upload implementation, not a wrapper or a delegate to another skill directory. Invoke it directly from the installed skill directory. The skill directory carries the helper; credentials and response-cache files remain external. If the helper is missing or not executable, repair the skill installation rather than moving credentials or adding another wrapper.
 
 Success writes exactly one stdout line: a bare `https://img.237575.xyz/media/<key>` URL, or `![](<URL>)` with `-m`/`--markdown`. Diagnostics go to stderr. Exit codes: `0` success (also `--help`), `1` runtime failure, `2` usage error. The exit code, not a captured string, decides upload success.
 

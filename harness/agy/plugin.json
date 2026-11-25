@@ -1,0 +1,6 @@
+{
+  "name": "agent-skills",
+  "displayName": "Agent skills",
+  "version": "1.0.0",
+  "description": "Rules and skills generated from Mouriya-Emma/skills by bin/skills-sync."
+}

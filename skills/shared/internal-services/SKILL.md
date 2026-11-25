@@ -82,6 +82,6 @@ This skill's source is `skills/shared/internal-services/SKILL.md` in `Mouriya-Em
 2. Collect current evidence from the sources above and both Cores' live reads. Initialize only the submodules whose detail is needed; report unavailable evidence as unknown.
 3. Recompute with the counting policy into a named list; reconcile top-level services versus helpers, homelab versus vctcn placement, retired items, duplicate names, declaring sources, and missing or stale skills.
 4. Replace stale prose directly; do not append contradictory notes or store a numeric total. Keep operational runbooks in their own skills; if another skill is stale, fix it in the same checkout.
-5. Deliver as the repo's `AGENTS.md` prescribes (direct commit to `main`, push), then deploy only the changed skills with `npx skills update <name> --global`. Confirm `diff -r skills/shared/<name> ~/.agents/skills/<name>` prints nothing.
+5. Deliver as the repo's `AGENTS.md` prescribes: commit directly to `main`, push, then run `~/.local/share/agent-skills/repo/bin/skills-sync`, which fast-forwards the deployment clone and regenerates every harness's skill links. Confirm `git -C ~/.local/share/agent-skills/repo rev-parse HEAD` equals the pushed commit and that each changed skill in a harness's skill directory links into `~/.local/share/agent-skills/repo/skills/`.
 
 When the evidence calls for host, network, storage or Komodo-installation changes, use `iac-projects`; for app changes, use `km`. A refresh does not itself authorize those changes.
