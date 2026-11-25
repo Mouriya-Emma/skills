@@ -28,7 +28,7 @@ Back up before a Core Compose redeploy, FerretDB/Postgres upgrade or host migrat
 km -p "$core" db backup
 ```
 
-`db backup` writes a timestamped backup folder and then, when `max_backups > 0`, prunes the oldest folders above the limit — a normal backup can delete an older recovery point (`max_backups = 0` disables this). Both current Cores run with `backups_folder = /backups` and `max_backups = 14`; the host side of `/backups` is `/data/komodo/backups` on the homelab Core (homelab-app1) and `/etc/komodo/backups` on the trading Core. The system Procedure `Backup Core Database` exists on both Cores with its schedule declared off (homelab-komodo#186), so no backup runs unless requested; re-check effective configuration rather than trusting these values.
+`db backup` writes a timestamped backup folder and then, when `max_backups > 0`, prunes the oldest folders above the limit — a normal backup can delete an older recovery point (`max_backups = 0` disables this). Both current Cores run with `backups_folder = /backups` and `max_backups = 14`; the host side of `/backups` is `/data/komodo/backups` on the homelab Core (homelab-app1) and `/etc/komodo/backups` on the trading Core. The system Procedure `Backup Core Database` exists on both Cores and its schedule switch is declared by the `komodo-core` role in homelab-tf: on the homelab Core it runs daily at 01:00 Asia/Tokyo, on the trading Core it is off (homelab-komodo#186), so a trading backup runs only when requested. Re-check effective configuration rather than trusting these values. The `Stats` collection is not written into the dated folder: every backup rewrites one `Stats.gz` at the backups root.
 
 The Core execution alternative is:
 
