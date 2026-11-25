@@ -1,0 +1,546 @@
+#!/usr/bin/env bun
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join, resolve } from "node:path";
+
+type Harness = "omp" | "claude" | "agy";
+type AgySection = "common" | "app" | "cli" | "acp";
+type Origin = "shared" | Harness;
+type Activation =
+  | { readonly kind: "always" }
+  | { readonly kind: "paths"; readonly paths: readonly string[] }
+  | { readonly kind: "condition" };
+type Rule = {
+  readonly name: string;
+  readonly file: string;
+  readonly harnesses: readonly Harness[];
+  readonly activation: Activation;
+  readonly description: string | undefined;
+  readonly frontmatter: string;
+  readonly body: string;
+};
+type Options = { readonly home: string; readonly repo: string; readonly pull: boolean };
+type RuleSet = { readonly harness: Harness; readonly dir: string; readonly files: ReadonlyMap<string, string> };
+type LinkOp =
+  | { readonly kind: "create"; readonly path: string; readonly target: string }
+  | { readonly kind: "replace"; readonly path: string; readonly target: string }
+  | { readonly kind: "remove"; readonly path: string };
+type LinkPlan = { readonly label: string; readonly dir: string; readonly desired: number; readonly ops: readonly LinkOp[] };
+type FileLink = { readonly path: string; readonly target: string; readonly op: "keep" | "write" };
+type Parsed<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: string };
+
+const HARNESSES: readonly Harness[] = ["omp", "claude", "agy"];
+const AGY_SECTIONS: readonly AgySection[] = ["common", "app", "cli", "acp"];
+const AGY_RULE_LIMIT = 24000;
+const SKILL_NAME = /^[a-z0-9][a-z0-9._-]*$/;
+const USAGE = "usage: skills-sync [--home <dir>] [--repo <dir>] [--no-pull]";
+const UF_IMMUTABLE = 0x2;
+const SF_IMMUTABLE = 0x20000;
+
+const problems: string[] = [];
+const problem = (message: string): undefined => {
+  problems.push(message);
+  return undefined;
+};
+
+const usageExit = (message: string): never => {
+  console.error(`skills-sync: ${message}\n${USAGE}`);
+  process.exit(2);
+};
+
+const parseArgs = (argv: readonly string[]): Options => {
+  let home = process.env.HOME ?? "";
+  let repo = resolve(dirname(realpathSync(import.meta.path)), "..");
+  let pull = true;
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    const value = (): string => argv[++i] ?? usageExit(`${arg} needs a value`);
+    switch (arg) {
+      case "--home":
+        home = value();
+        break;
+      case "--repo":
+        repo = value();
+        break;
+      case "--no-pull":
+        pull = false;
+        break;
+      case "-h":
+      case "--help":
+        console.log(USAGE);
+        process.exit(0);
+      default:
+        usageExit(`unknown argument: ${arg}`);
+    }
+  }
+  if (home === "") usageExit("HOME is not set; pass --home");
+  return { home: resolve(home), repo: resolve(repo), pull };
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+const isStringArray = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((item) => typeof item === "string");
+const isHarness = (value: string): value is Harness => (HARNESSES as readonly string[]).includes(value);
+const isAgySection = (value: string): value is AgySection => (AGY_SECTIONS as readonly string[]).includes(value);
+
+const parseYaml = (text: string): Parsed<unknown> => {
+  try {
+    return { ok: true, value: Bun.YAML.parse(text) };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+};
+
+const splitFrontmatter = (text: string): { frontmatter: string; body: string } | undefined => {
+  if (!text.startsWith("---\n")) return undefined;
+  const end = text.indexOf("\n---\n", 3);
+  if (end < 0) return undefined;
+  return { frontmatter: text.slice(4, end + 1), body: text.slice(end + 5) };
+};
+
+const parseFrontmatterOf = (text: string): Parsed<Record<string, unknown>> => {
+  const parts = splitFrontmatter(text);
+  if (parts === undefined) return { ok: false, error: "missing YAML frontmatter" };
+  const parsed = parseYaml(parts.frontmatter);
+  if (!parsed.ok) return { ok: false, error: `frontmatter is not valid YAML: ${parsed.error}` };
+  if (!isRecord(parsed.value)) return { ok: false, error: "frontmatter is not a mapping" };
+  return { ok: true, value: parsed.value };
+};
+
+const ALLOWED_KEYS: Readonly<Record<Origin, readonly string[]>> = {
+  shared: ["description", "alwaysApply", "paths", "harnesses"],
+  omp: ["name", "description", "alwaysApply", "paths", "condition", "scope", "question"],
+  claude: ["description", "alwaysApply", "paths"],
+  agy: ["description", "alwaysApply", "paths"],
+};
+
+const parseActivation = (fm: Record<string, unknown>): Parsed<Activation> => {
+  const declared = ["alwaysApply", "paths", "condition"].filter((key) => fm[key] !== undefined);
+  if (declared.length !== 1) return { ok: false, error: "needs exactly one of alwaysApply: true, paths or condition" };
+  if (fm.alwaysApply !== undefined) {
+    return fm.alwaysApply === true
+      ? { ok: true, value: { kind: "always" } }
+      : { ok: false, error: "alwaysApply must be true" };
+  }
+  if (fm.paths !== undefined) {
+    return isStringArray(fm.paths) && fm.paths.length > 0 && fm.paths.every((p) => p !== "")
+      ? { ok: true, value: { kind: "paths", paths: fm.paths } }
+      : { ok: false, error: "paths must be a non-empty list of non-empty strings" };
+  }
+  return typeof fm.condition === "string" || isStringArray(fm.condition)
+    ? { ok: true, value: { kind: "condition" } }
+    : { ok: false, error: "condition must be a string or a list of strings" };
+};
+
+const parseHarnesses = (origin: Origin, value: unknown): Parsed<readonly Harness[]> => {
+  if (origin !== "shared") return { ok: true, value: [origin] };
+  if (value === undefined) return { ok: true, value: HARNESSES };
+  if (!isStringArray(value) || value.length === 0) return { ok: false, error: "harnesses must be a non-empty list" };
+  const unknown = value.filter((item) => !isHarness(item));
+  if (unknown.length > 0) return { ok: false, error: `unknown harnesses: ${unknown.join(", ")}` };
+  if (new Set(value).size !== value.length) return { ok: false, error: "harnesses has duplicates" };
+  return { ok: true, value: value.filter(isHarness) };
+};
+
+const parseRule = (file: string, origin: Origin): Rule | undefined => {
+  const text = readFileSync(file, "utf8");
+  const parts = splitFrontmatter(text);
+  const fm = parseFrontmatterOf(text);
+  if (parts === undefined || !fm.ok) return problem(`${file}: ${fm.ok ? "missing YAML frontmatter" : fm.error}`);
+  const extra = Object.keys(fm.value).filter((key) => !ALLOWED_KEYS[origin].includes(key));
+  if (extra.length > 0) return problem(`${file}: keys not allowed in rules/${origin}: ${extra.join(", ")}`);
+  const description = fm.value.description;
+  if (description !== undefined && typeof description !== "string") return problem(`${file}: description must be a string`);
+  const activation = parseActivation(fm.value);
+  if (!activation.ok) return problem(`${file}: ${activation.error}`);
+  const harnesses = parseHarnesses(origin, fm.value.harnesses);
+  if (!harnesses.ok) return problem(`${file}: ${harnesses.error}`);
+  return {
+    name: file.slice(file.lastIndexOf("/") + 1, -".md".length),
+    file,
+    harnesses: harnesses.value,
+    activation: activation.value,
+    description,
+    frontmatter: parts.frontmatter,
+    body: parts.body,
+  };
+};
+
+const loadRules = (repo: string, origin: Origin): readonly Rule[] => {
+  const dir = join(repo, "rules", origin);
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((entry) => entry.endsWith(".md"))
+    .sort()
+    .flatMap((entry) => parseRule(join(dir, entry), origin) ?? []);
+};
+
+const sameStrings = (a: unknown, b: readonly string[]): boolean =>
+  isStringArray(a) && a.length === b.length && a.every((item, i) => item === b[i]);
+
+const expandBraces = (pattern: string): readonly string[] => {
+  const match = /\{([^{}]*)\}/.exec(pattern);
+  if (match === null) return [pattern];
+  const head = pattern.slice(0, match.index);
+  const tail = pattern.slice(match.index + match[0].length);
+  return (match[1] ?? "").split(",").flatMap((alt) => expandBraces(head + alt + tail));
+};
+
+const agyGlobs = (paths: readonly string[]): readonly string[] =>
+  paths
+    .flatMap(expandBraces)
+    .map((p) => p.replace(/^\/+/, ""))
+    .map((p) => (p.startsWith("**/") ? p : `**/${p}`));
+
+const renderNative = (rule: Rule, harness: Harness): string | undefined => {
+  const frontmatter = rule.frontmatter
+    .split("\n")
+    .filter((line) => !line.startsWith("harnesses:"))
+    .join("\n");
+  const content = `---\n${frontmatter}---\n${rule.body}`;
+  const fm = parseFrontmatterOf(content);
+  if (!fm.ok) return problem(`${rule.file}: rendered ${harness} rule: ${fm.error}`);
+  if (fm.value.harnesses !== undefined) return problem(`${rule.file}: harnesses must be written on one line`);
+  switch (rule.activation.kind) {
+    case "always":
+      return fm.value.alwaysApply === true && fm.value.paths === undefined
+        ? content
+        : problem(`${rule.file}: rendered ${harness} rule lost alwaysApply`);
+    case "paths":
+      return sameStrings(fm.value.paths, rule.activation.paths)
+        ? content
+        : problem(`${rule.file}: rendered ${harness} rule does not parse to the source paths`);
+    case "condition":
+      return harness === "omp" && fm.value.condition !== undefined
+        ? content
+        : problem(`${rule.file}: condition rules render only for omp`);
+  }
+};
+
+const renderAgy = (rule: Rule): string | undefined => {
+  const description = rule.description === undefined ? [] : [`description: ${JSON.stringify(rule.description)}`];
+  let head: readonly string[];
+  let globs: string | undefined;
+  switch (rule.activation.kind) {
+    case "always":
+      head = ["trigger: always_on"];
+      break;
+    case "paths": {
+      const list = agyGlobs(rule.activation.paths);
+      const bad = list.filter((g) => g.includes(","));
+      if (bad.length > 0) return problem(`${rule.file}: AGY globs cannot contain commas: ${bad.join(" ")}`);
+      globs = list.join(",");
+      head = ["trigger: glob", `globs: ${JSON.stringify(globs)}`];
+      break;
+    }
+    case "condition":
+      return problem(`${rule.file}: condition rules render only for omp`);
+  }
+  const content = `---\n${[...head, ...description].join("\n")}\n---\n${rule.body}`;
+  const bytes = Buffer.byteLength(content, "utf8");
+  if (bytes > AGY_RULE_LIMIT) {
+    return problem(`${rule.file}: AGY rule is ${bytes} bytes, over the ${AGY_RULE_LIMIT}-byte limit; split the source rule`);
+  }
+  const fm = parseFrontmatterOf(content);
+  if (!fm.ok) return problem(`${rule.file}: rendered AGY rule: ${fm.error}`);
+  const expectedTrigger = globs === undefined ? "always_on" : "glob";
+  if (fm.value.trigger !== expectedTrigger || fm.value.globs !== globs) {
+    return problem(`${rule.file}: rendered AGY rule does not parse to trigger ${expectedTrigger}`);
+  }
+  return content;
+};
+
+const buildRuleSet = (opts: Options, harness: Harness, shared: readonly Rule[], dir: string): RuleSet => {
+  const own = loadRules(opts.repo, harness);
+  const files = new Map<string, string>();
+  for (const rule of [...shared.filter((r) => r.harnesses.includes(harness)), ...own]) {
+    if (files.has(`${rule.name}.md`)) {
+      problem(`rule name ${rule.name} is defined in both rules/shared and rules/${harness}`);
+      continue;
+    }
+    const content = harness === "agy" ? renderAgy(rule) : renderNative(rule, harness);
+    if (content !== undefined) files.set(`${rule.name}.md`, content);
+  }
+  return { harness, dir, files };
+};
+
+const parseManifest = (file: string, sectioned: boolean): ReadonlyMap<string, readonly string[]> => {
+  const sections = new Map<string, string[]>();
+  if (!existsSync(file)) {
+    problem(`${file}: missing manifest`);
+    return sections;
+  }
+  const seen = new Set<string>();
+  let current: string[] | undefined = sectioned ? undefined : [];
+  if (!sectioned && current !== undefined) sections.set("", current);
+  readFileSync(file, "utf8")
+    .split("\n")
+    .map((line) => line.trim())
+    .forEach((line, index) => {
+      if (line === "") return;
+      const where = `${file}:${index + 1}`;
+      const header = /^\[(.+)\]$/.exec(line);
+      if (header !== null) {
+        const name = header[1] ?? "";
+        if (!sectioned || !isAgySection(name)) return problem(`${where}: unexpected section [${name}]`);
+        if (sections.has(name)) return problem(`${where}: duplicate section [${name}]`);
+        current = [];
+        sections.set(name, current);
+        return;
+      }
+      if (current === undefined) return problem(`${where}: skill ${line} is outside a section`);
+      if (!SKILL_NAME.test(line)) return problem(`${where}: invalid skill name ${line}`);
+      if (seen.has(line)) return problem(`${where}: skill ${line} is listed twice`);
+      seen.add(line);
+      current.push(line);
+    });
+  return sections;
+};
+
+const resolveSkill = (opts: Options, name: string, layers: readonly string[], manifest: string): string | undefined => {
+  const candidates = [
+    ...layers.map((layer) => join(opts.repo, "skills", layer, name)),
+    join(opts.repo, "skills", "shared", name),
+    join(opts.home, ".agents", "skills", name),
+  ];
+  return (
+    candidates.find((dir) => existsSync(join(dir, "SKILL.md"))) ??
+    problem(`${manifest}: skill ${name} not found in ${candidates.join(", ")}`)
+  );
+};
+
+const realpathOrUndefined = (path: string): string | undefined => {
+  try {
+    return realpathSync(path);
+  } catch {
+    return undefined;
+  }
+};
+
+const managedRoots = (opts: Options): readonly string[] => {
+  const roots = [opts.repo, join(opts.home, ".local", "share", "agent-skills", "repo"), join(opts.home, ".agents", "skills")];
+  return [...new Set(roots.flatMap((root) => [root, realpathOrUndefined(root) ?? root]))].map((root) => `${root}/`);
+};
+
+const isImmutable = (path: string): boolean => {
+  const result = Bun.spawnSync(["stat", "-f", "%f", path]);
+  if (result.exitCode !== 0) return false;
+  const flags = Number.parseInt(result.stdout.toString().trim(), 10);
+  return (flags & (UF_IMMUTABLE | SF_IMMUTABLE)) !== 0;
+};
+
+const planLinks = (
+  label: string,
+  dir: string,
+  desired: ReadonlyMap<string, string>,
+  roots: readonly string[],
+): LinkPlan => {
+  const ops: LinkOp[] = [];
+  const entries = existsSync(dir) ? readdirSync(dir) : [];
+  const isManaged = (target: string): boolean => roots.some((root) => target.startsWith(root));
+  for (const name of entries) {
+    const path = join(dir, name);
+    const link = lstatSync(path).isSymbolicLink() ? resolve(dir, readlinkSync(path)) : undefined;
+    const target = desired.get(name);
+    if (target !== undefined) {
+      if (link === target) continue;
+      if (link !== undefined && isManaged(link)) ops.push({ kind: "replace", path, target });
+      else if (realpathOrUndefined(path) === undefined || realpathOrUndefined(path) !== realpathOrUndefined(target)) {
+        problem(`${path}: unmanaged entry occupies the name of manifest skill ${name}; it is left untouched`);
+      }
+    } else if (link !== undefined && isManaged(link)) {
+      ops.push({ kind: "remove", path });
+    }
+  }
+  for (const [name, target] of desired) {
+    if (!entries.includes(name)) ops.push({ kind: "create", path: join(dir, name), target });
+  }
+  if (ops.length > 0 && existsSync(dir) && isImmutable(dir)) problem(`${dir}: directory is uchg-locked; refusing to modify it`);
+  for (const op of ops) {
+    if (op.kind !== "create" && isImmutable(op.path)) problem(`${op.path}: entry is uchg-locked; refusing to modify it`);
+  }
+  return { label, dir, desired: desired.size, ops };
+};
+
+const desiredLinks = (
+  opts: Options,
+  names: readonly string[],
+  layers: readonly string[],
+  manifest: string,
+): ReadonlyMap<string, string> =>
+  new Map(names.flatMap((name) => {
+    const source = resolveSkill(opts, name, layers, manifest);
+    return source === undefined ? [] : [[name, source] as const];
+  }));
+
+const planClaudeMd = (opts: Options, roots: readonly string[]): FileLink | undefined => {
+  const source = join(opts.repo, "harness", "claude", "CLAUDE.md");
+  if (!existsSync(source)) return undefined;
+  const path = join(opts.home, ".claude", "CLAUDE.md");
+  if (!existsSync(path) && !isSymlink(path)) return { path, target: source, op: "write" };
+  const stat = lstatSync(path);
+  if (stat.isSymbolicLink()) {
+    const link = resolve(dirname(path), readlinkSync(path));
+    if (link === source) return { path, target: source, op: "keep" };
+    if (roots.some((root) => link.startsWith(root))) return { path, target: source, op: "write" };
+    return problem(`${path}: symlink to ${link} is not managed; left untouched`);
+  }
+  if (stat.isFile() && readFileSync(path, "utf8") === readFileSync(source, "utf8")) {
+    return { path, target: source, op: "write" };
+  }
+  return problem(`${path}: differs from harness/claude/CLAUDE.md; merge it into the repo first`);
+};
+
+const isSymlink = (path: string): boolean => {
+  try {
+    return lstatSync(path).isSymbolicLink();
+  } catch {
+    return false;
+  }
+};
+
+const parsePluginJson = (opts: Options): string | undefined => {
+  const file = join(opts.repo, "harness", "agy", "plugin.json");
+  if (!existsSync(file)) return problem(`${file}: missing`);
+  const text = readFileSync(file, "utf8");
+  try {
+    const value: unknown = JSON.parse(text);
+    return isRecord(value) && value.name === "agent-skills" ? text : problem(`${file}: name must be agent-skills`);
+  } catch (error) {
+    return problem(`${file}: invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+
+const writeRuleSet = (stateRoot: string, set: RuleSet): void => {
+  mkdirSync(stateRoot, { recursive: true });
+  const staging = mkdtempSync(join(stateRoot, ".staging-"));
+  for (const [name, content] of set.files) writeFileSync(join(staging, name), content);
+  rmSync(set.dir, { recursive: true, force: true });
+  mkdirSync(dirname(set.dir), { recursive: true });
+  renameSync(staging, set.dir);
+};
+
+const applyLinks = (plan: LinkPlan): void => {
+  if (plan.ops.length === 0) return;
+  mkdirSync(plan.dir, { recursive: true });
+  for (const op of plan.ops) {
+    switch (op.kind) {
+      case "remove":
+        unlinkSync(op.path);
+        break;
+      case "replace":
+        unlinkSync(op.path);
+        symlinkSync(op.target, op.path);
+        break;
+      case "create":
+        symlinkSync(op.target, op.path);
+        break;
+    }
+  }
+};
+
+const pull = (repo: string): void => {
+  const result = Bun.spawnSync(["git", "-C", repo, "pull", "--ff-only", "origin", "main"], {
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  if (result.exitCode !== 0) {
+    console.error(`skills-sync: git pull --ff-only failed in ${repo}`);
+    process.exit(1);
+  }
+};
+
+const main = (): void => {
+  const opts = parseArgs(process.argv.slice(2));
+  if (opts.pull) pull(opts.repo);
+  const home = opts.home;
+  const stateRoot = join(home, ".local", "state", "agent-skills");
+  const pluginDir = join(home, ".gemini", "config", "plugins", "agent-skills");
+  const roots = managedRoots(opts);
+
+  const shared = loadRules(opts.repo, "shared");
+  const ruleSets: readonly RuleSet[] = [
+    buildRuleSet(opts, "omp", shared, join(stateRoot, "omp", "rules")),
+    buildRuleSet(opts, "claude", shared, join(home, ".claude", "rules", "agent-skills")),
+    buildRuleSet(opts, "agy", shared, join(pluginDir, "rules")),
+  ];
+  const pluginJson = parsePluginJson(opts);
+
+  const ompManifest = join(opts.repo, "harness", "omp", "manifest");
+  const claudeManifest = join(opts.repo, "harness", "claude", "manifest");
+  const agyManifest = join(opts.repo, "harness", "agy", "manifest");
+  const agy = parseManifest(agyManifest, true);
+  const agyDirs: Readonly<Record<AgySection, { dir: string; layers: readonly string[] }>> = {
+    common: { dir: join(pluginDir, "skills"), layers: ["agy"] },
+    app: { dir: join(home, ".gemini", "antigravity", "skills"), layers: ["agy-app", "agy"] },
+    cli: { dir: join(home, ".gemini", "antigravity-cli", "skills"), layers: ["agy-cli", "agy"] },
+    acp: { dir: join(home, ".gemini", "antigravity-acp", "skills"), layers: ["agy-acp", "agy"] },
+  };
+  const linkPlans: readonly LinkPlan[] = [
+    planLinks(
+      "omp",
+      join(stateRoot, "omp", "skills"),
+      desiredLinks(opts, parseManifest(ompManifest, false).get("") ?? [], ["omp"], ompManifest),
+      roots,
+    ),
+    planLinks(
+      "claude",
+      join(home, ".claude", "skills"),
+      desiredLinks(opts, parseManifest(claudeManifest, false).get("") ?? [], ["claude"], claudeManifest),
+      roots,
+    ),
+    ...AGY_SECTIONS.map((section) =>
+      planLinks(
+        `agy[${section}]`,
+        agyDirs[section].dir,
+        desiredLinks(opts, agy.get(section) ?? [], agyDirs[section].layers, agyManifest),
+        roots,
+      ),
+    ),
+  ];
+  const claudeMd = planClaudeMd(opts, roots);
+
+  if (problems.length > 0) {
+    for (const message of problems) console.error(`skills-sync: ${message}`);
+    console.error(`skills-sync: ${problems.length} problem(s); nothing was written`);
+    process.exit(1);
+  }
+
+  for (const set of ruleSets) writeRuleSet(stateRoot, set);
+  mkdirSync(pluginDir, { recursive: true });
+  writeFileSync(join(pluginDir, "plugin.json"), pluginJson ?? "");
+  for (const plan of linkPlans) {
+    if (plan.desired > 0) mkdirSync(plan.dir, { recursive: true });
+    applyLinks(plan);
+  }
+  if (claudeMd !== undefined && claudeMd.op === "write") {
+    if (existsSync(claudeMd.path) || isSymlink(claudeMd.path)) unlinkSync(claudeMd.path);
+    mkdirSync(dirname(claudeMd.path), { recursive: true });
+    symlinkSync(claudeMd.target, claudeMd.path);
+  }
+
+  for (const set of ruleSets) console.log(`rules  ${set.harness.padEnd(11)} ${String(set.files.size).padStart(3)}  ${set.dir}`);
+  for (const plan of linkPlans) {
+    const count = (kind: LinkOp["kind"]) => plan.ops.filter((op) => op.kind === kind).length;
+    console.log(
+      `skills ${plan.label.padEnd(11)} ${String(plan.desired).padStart(3)}  +${count("create")} ~${count("replace")} -${count("remove")}  ${plan.dir}`,
+    );
+  }
+  if (claudeMd !== undefined) console.log(`claude CLAUDE.md -> ${claudeMd.target}`);
+};
+
+main();
