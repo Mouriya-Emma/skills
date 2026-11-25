@@ -1,22 +1,25 @@
 #!/bin/bash
-# List all Komodo endpoints registered in the external inventory.
-# Each line: <name>  <host>
-# There is no "active" endpoint — every km call picks its target via
-# `km -p <name>` per invocation (see render-config.sh).
 set -euo pipefail
 
 ENDPOINTS_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/komodo/endpoints"
 
-found=0
-for f in "$ENDPOINTS_DIR"/*.toml; do
-    [ -e "$f" ] || continue
-    found=1
-    name="$(basename "$f" .toml)"
-    host="$(awk -F'"' '/^host/ {print $2; exit}' "$f")"
-    printf '%-20s %s\n' "$name" "$host"
-done
+exec python3 - "$ENDPOINTS_DIR" <<'PY'
+import pathlib
+import sys
 
-if [ "$found" -eq 0 ]; then
-    echo "No endpoints defined in $ENDPOINTS_DIR" >&2
-    exit 1
-fi
+try:
+    import tomllib
+except ImportError:
+    sys.exit("ERROR: list.sh requires Python 3.11+ with stdlib tomllib")
+
+files = sorted(pathlib.Path(sys.argv[1]).glob("*.toml"))
+if not files:
+    sys.exit(f"No endpoints defined in {sys.argv[1]}")
+for f in files:
+    try:
+        data = tomllib.loads(f.read_text())
+    except (OSError, UnicodeError, tomllib.TOMLDecodeError):
+        print(f"{f.stem:<20} ERROR: unreadable or invalid TOML")
+        continue
+    print(f"{f.stem:<20} {data.get('host', '')}  {data.get('bao_path', '')}")
+PY

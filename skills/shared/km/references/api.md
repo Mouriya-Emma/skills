@@ -1,6 +1,6 @@
 # Komodo REST API for CLI gaps
 
-Prefer an existing `km -p <core>` command: it handles authentication and errors. Use REST when the CLI lacks the required operation, field or resource detail, or when a newer local CLI fails against an older Core with `ERROR: 200 OK`. Target routing is in `../SKILL.md`; connections and the credential-helper contract are in `endpoints.md`.
+Prefer an existing `km -p <core>` command: it handles authentication and errors. Use REST when the CLI lacks the required operation, field or resource detail, or when a newer local CLI fails against an older Core with `ERROR: 200 OK`. Target routing is in `../SKILL.md`; connections and the `endpoint-run.sh` credential contract are in `endpoints.md`.
 
 ## Establish operation and authority
 
@@ -11,25 +11,18 @@ Prefer an existing `km -p <core>` command: it handles authentication and errors.
 
 ## Make a read-only request
 
-The helper requires Python 3.11+ (stdlib `tomllib`); on this workstation the default `python3` may be older, so put a newer interpreter first on `PATH` inside the request shell (for example `export PATH="$(dirname "$(uv python find 3.13)"):$PATH"`). `<km-skill-dir>` is the km skill directory, the parent of this `references/` directory. The helper emits the fixed, shell-escaped Bash `NAME`, `HOST`, `KEY`, `SECRET` assignments described in `endpoints.md`. Values are encoded as literal data, not shell commands. Capture only this trusted local helper's output with tracing disabled, stop on failure and consume it in the explicit Bash subshell below. Do not display helper output or reuse stale variables from another Core.
+`<km-skill-dir>` is the km skill directory, the parent of this `references/` directory. `endpoint-run.sh` (see `endpoints.md`) reads the endpoint's key and secret from OpenBao through `bao-exec` and runs one command with `KOMODO_CLI_HOST`, `KOMODO_CLI_KEY`, `KOMODO_CLI_SECRET` in its environment; it requires Python 3.11+ (stdlib `tomllib`). Headers go through a file descriptor so the values never reach `argv`:
 
 ```bash
-bash <<'BASH'
-(
-  set +x
-  KM_SKILL=<km-skill-dir>
-  endpoint_fields=$(bash "$KM_SKILL/bin/show.sh" homelab) || exit
-  eval "$endpoint_fields" || exit
-  curl --silent --show-error --fail-with-body -X POST "$HOST/read" \
-    -H 'Content-Type: application/json' \
-    -H "x-api-key: $KEY" \
-    -H "x-api-secret: $SECRET" \
-    -d '{"type":"GetVersion","params":{}}'
-)
-BASH
+KM_SKILL=<km-skill-dir>
+bash "$KM_SKILL/bin/endpoint-run.sh" homelab -- bash -c '
+  curl --silent --show-error --fail-with-body -X POST "$KOMODO_CLI_HOST/read" \
+    -H "Content-Type: application/json" \
+    -H @<(printf "x-api-key: %s\nx-api-secret: %s\n" "$KOMODO_CLI_KEY" "$KOMODO_CLI_SECRET") \
+    -d "{\"type\":\"GetVersion\",\"params\":{}}"'
 ```
 
-For trading, pass `trading` to `show.sh` in that same request shell; there is no global profile selection. For Server inventory prefer `km -p <core> ls servers -f json` (it returns `id`, `name`, `info.address`); use REST `ListServers` only when a needed field is missing from the CLI output. Response data may contain sensitive configuration in other read operations: capture it privately and report only necessary nonsecret fields. Do not enable verbose curl or shell tracing.
+For trading, pass `trading` as the endpoint name; there is no global profile selection. For Server inventory prefer `km -p <core> ls servers -f json` (it returns `id`, `name`, `info.address`); use REST `ListServers` only when a needed field is missing from the CLI output. Response data may contain sensitive configuration in other read operations: capture it privately and report only necessary nonsecret fields. Do not enable verbose curl or shell tracing.
 
 ## Request shape and mutation workflow
 

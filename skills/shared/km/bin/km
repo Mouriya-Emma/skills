@@ -1,0 +1,29 @@
+#!/bin/bash
+set -euo pipefail
+
+REAL_KM="${KM_REAL_BIN:-/opt/homebrew/bin/km}"
+ENDPOINTS_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/komodo/endpoints"
+here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+
+profile=
+case "${1-}" in
+    -p|--profile)
+        [ "$#" -ge 2 ] || { echo "km: $1 needs an endpoint name" >&2; exit 2; }
+        profile="$2"
+        shift 2
+        ;;
+    --profile=*)
+        profile="${1#--profile=}"
+        shift
+        ;;
+    -p?*)
+        profile="${1#-p}"
+        shift
+        ;;
+esac
+
+if [ -z "$profile" ]; then
+    exec "$REAL_KM" -c "$ENDPOINTS_DIR" "$@"
+fi
+
+exec "$here/endpoint-run.sh" "$profile" -- "$REAL_KM" -c "$ENDPOINTS_DIR" "$@"
