@@ -37,8 +37,8 @@ npx skills remove km --global           # 移除指定的全局 skill
 
 ## 独立项目
 
-`ssot` 与 `ssot-migration` 在 [mouriya-s-lab/SSoT](https://github.com/mouriya-s-lab/SSoT) 中维护，使用该仓库安装：
+`ssot` 系列 skill 在 [mouriya-s-lab/SSoT](https://github.com/mouriya-s-lab/SSoT) 中维护，使用该仓库安装：
 
 ```bash
-npx skills add mouriya-s-lab/SSoT --skill ssot ssot-migration --global --agent codex claude-code --yes
+npx skills add mouriya-s-lab/SSoT --skill ssot ssot-judge ssot-requirement ssot-iterate ssot-migrate ssot-c4 ssot-vdm ssot-quint ssot-write-level ssot-write-deploy ssot-write-contract ssot-write-behavior ssot-verify-structure ssot-verify-contract ssot-verify-behavior --global --agent codex claude-code --yes
 ```
