@@ -10,4 +10,4 @@ Do not use `BLOCK` in todo documents, either on single items or on whole phases.
 - A serial gate is not a blocker. Items that come later stay `pending`, and the item you are working on stays `in_progress`.
 - Waiting on a subagent is not a blocker either. Keep the current item active and do the work you can reach: read the subagent's `history://<id>`, steer it, verify its results, prepare the next brief, and fix issue contracts.
 - When the todo pointer auto-advances to the wrong item, `START` the item you are actually working on. Do not block the other items to stop it.
-- When an item runs over budget, say why and set an honest new budget with `ESTIMATE`. Do not freeze its clock with `BLOCK`.
+- When an item runs over budget, say why and set an honest new budget of 30 minutes or less with `ESTIMATE`, or split the rest into several items (`todo-item-max-30-min`). Do not freeze its clock with `BLOCK`.
