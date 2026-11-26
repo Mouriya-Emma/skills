@@ -7,11 +7,11 @@ import { type EvidenceRecord, loadRecords } from "./evidence/record.ts";
 import { packComplete, parsePack, renderPack, toPack } from "./evidence/render.ts";
 import { clauseText } from "./fetch.ts";
 import { type GateHeader, gateEntries, headerFor, latestValid, parseHeader, renderHeader } from "./gate.ts";
-import type { Comment, IssueData, PrData } from "./github.ts";
+import type { Comment, IssueData, PrData, PrState } from "./github.ts";
 import { codeRepo, type IssueBody, parseIssue, type TypedOutcome } from "./issue.ts";
-import { rebaseOnto } from "./land.ts";
+import { checkWaitDecision, type LandDeps, landOrder, landPipeline, type Pipeline, rebaseOnto, type RebaseOutcome } from "./land.ts";
 import { checkPrMergeReady } from "./merge.ts";
-import { FACES } from "./model.ts";
+import { err, FACES, templateOf } from "./model.ts";
 import { EMPTY_PATCH, localPatchId, patchIdOfDiff } from "./patch.ts";
 import { checkPlacement, checkTreePr } from "./pr.ts";
 import type { Ref } from "./ref.ts";
@@ -180,6 +180,13 @@ describe("evidence requirements", () => {
     expect(defaultStep("cli")).toBe("run");
     expect(defaultStep("service")).toBeNull();
     expect(defaultStep("data")).toBeNull();
+  });
+
+  test("the changed and preserved templates no longer promise a before/after pair", () => {
+    expect(templateOf("改")).toBe("改功能");
+    expect(templateOf("保持")).toBe("保持不变");
+    expect(templateOf("新")).toBe("新功能");
+    expect(templateOf("删")).toBe("删功能");
   });
 });
 
@@ -385,13 +392,64 @@ describe("evidence check", () => {
     expect(r.unseenFaces).toEqual(["library"]);
     expect(r.complete).toBe(false);
   });
+});
 
-  test("without a test check every face falls back to records instead of passing empty", async () => {
-    const text = standard({ faces: ["service"], outcomes: ["- 结果 1 [新]：a"] });
-    const r = await checkEvidence(issueData(text), standardBody(text), [], mode);
-    expect(r.outcomes[0]?.proof.kind).toBe("records");
-    expect(outcomeVerdict(r.outcomes[0] as OutcomeStatus)).toBe("missing");
+describe("evidence check on a PR", () => {
+  const checkPr = (text: string, checks: PrData["checks"], records: readonly EvidenceRecord[] = []): Promise<CheckResult> =>
+    checkEvidence(issueData(text), standardBody(text), records, { kind: "pr", pr: prData({ checks }) }, { patch: P1, base: null });
+
+  test("test: success proves every testable result, so a PR with no records is complete", async () => {
+    const text = standard({ outcomes: ["- 结果 1 [新]：a", "- 结果 2 [改]：b"] });
+    const r = await checkPr(text, [{ name: "test", state: "success" }]);
+    expect(r.complete).toBe(true);
+    expect(r.outcomes.map((x) => x.proof)).toEqual([
+      { kind: "test", state: "success" },
+      { kind: "test", state: "success" },
+    ]);
+  });
+
+  test("without a test check the same PR needs records and is incomplete bare", async () => {
+    const text = standard({ outcomes: ["- 结果 1 [新]：a"] });
+    const r = await checkPr(text, []);
     expect(r.complete).toBe(false);
+    expect(r.outcomes[0]?.proof).toEqual({
+      kind: "records",
+      steps: [{ rule: { step: "run", needsImage: false }, status: { kind: "missing" } }],
+      orderProblem: null,
+    });
+    expect(r.unseenFaces).toEqual([]);
+  });
+
+  test("a pending or failing test check leaves the PR incomplete", async () => {
+    const text = standard({ outcomes: ["- 结果 1 [新]：a"] });
+    const pending = await checkPr(text, [{ name: "test", state: "pending" }]);
+    expect(pending.complete).toBe(false);
+    expect(pending.outcomes[0]?.proof).toEqual({ kind: "test", state: "pending" });
+    const failing = await checkPr(text, [{ name: "test", state: "failure" }]);
+    expect(failing.complete).toBe(false);
+    expect(failing.outcomes[0]?.proof).toEqual({ kind: "test", state: "failure" });
+  });
+
+  test("a mixed service and gui PR with test: success still needs a gui record", async () => {
+    const text = standard({ faces: ["service", "gui"], outcomes: ["- 结果 1 [新]：接口返回新字段", "- 结果 2 [新]：页面显示新字段"] });
+    const gui = standardBody(text).outcomes[1];
+    if (gui === undefined) throw new Error("no second outcome");
+    const record = recordFor(gui, {
+      face: "gui",
+      step: "after",
+      attachments: [{ source: "shot.png", url: "https://example.com/shot.png", contentType: "image/png", bytes: 10 }],
+    });
+    const without = await checkPr(text, [{ name: "test", state: "success" }]);
+    expect(without.outcomes.map((x) => x.proof.kind)).toEqual(["test", "test"]);
+    expect(without.unseenFaces).toEqual(["gui"]);
+    expect(without.complete).toBe(false);
+    const withRecord = await checkPr(text, [{ name: "test", state: "success" }], [record]);
+    expect(withRecord.outcomes.map((x) => [x.face, outcomeVerdict(x)])).toEqual([
+      ["service", "linked"],
+      ["gui", "linked"],
+    ]);
+    expect(withRecord.unseenFaces).toEqual([]);
+    expect(withRecord.complete).toBe(true);
   });
 });
 
@@ -725,6 +783,14 @@ describe("gate header", () => {
     const e = entries(P1, [comment(1, "2026-11-03T01:00:00Z", passLine(P1, HEAD, "tree/acme-app-1"))], { baseRefName: "main" });
     expect(e[0]?.stale).toEqual(["base 已从 tree/acme-app-1 变为 main"]);
   });
+
+  test("the newest valid verdict decides: a FAIL after a PASS on the same patch blocks", () => {
+    const e = entries(P1, [
+      comment(1, "2026-11-03T01:00:00Z", passLine(P1, HEAD)),
+      comment(2, "2026-11-03T02:00:00Z", failLine(P1, issue.bodyRev)),
+    ]);
+    expect(latestValid(e)?.header.verdict).toEqual({ kind: "fail", gate: null });
+  });
 });
 
 describe("merge readiness", () => {
@@ -780,6 +846,11 @@ describe("merge readiness", () => {
     expect(await problems({ comments: [] })).toEqual(["没有对当前输入有效的 review 结论"]);
     expect(await problems({ comments: [comment(1, "2026-11-03T01:00:00Z", passLine(P2, HEAD))] })).toEqual(["没有对当前输入有效的 review 结论"]);
     expect(await problems({ comments: [comment(9, "2026-11-03T01:00:00Z", failLine())] })).toEqual(["当前有效的 review 结论不是 PASS：u9"]);
+    expect(
+      await problems({
+        comments: [comment(1, "2026-11-03T01:00:00Z", passLine(P1, HEAD)), comment(2, "2026-11-03T02:00:00Z", failLine())],
+      }),
+    ).toEqual(["当前有效的 review 结论不是 PASS：u2"]);
   });
 
   test("a FAIL given after a PASS on the same patch blocks the merge", async () => {
@@ -842,6 +913,204 @@ describe("merge readiness", () => {
       { patch: P1, evidence: null },
     );
     expect(d.map((x) => x.message)).toContain("结果 1 没有要点标注「（结果 1）」");
+  });
+});
+
+describe("land check wait", () => {
+  const at = { head: HEAD, now: 1_000, startedAt: 0, noChecksAt: 60_000, deadline: 600_000, timeoutSeconds: 600 };
+  const snapshot = (head: string, checks: PrData["checks"]) => ({ head, checks });
+
+  test("all checks success merges on, and evidence/ statuses never count", () => {
+    expect(
+      checkWaitDecision({
+        ...at,
+        snapshot: snapshot(HEAD, [
+          { name: "test", state: "success" },
+          { name: "evidence/acme/app#7", state: "failure" },
+        ]),
+      }),
+    ).toEqual({ kind: "success", detail: "1 个检查 success" });
+  });
+
+  test("a failed check stops the landing; a cancelled or timed-out run is a failure by the time it is read", () => {
+    expect(checkWaitDecision({ ...at, snapshot: snapshot(HEAD, [{ name: "test", state: "success" }, { name: "build", state: "failure" }]) })).toEqual({
+      kind: "failure",
+      detail: "build=failure",
+    });
+  });
+
+  test("pending checks keep waiting, then fail at the deadline", () => {
+    const pending = snapshot(HEAD, [{ name: "test", state: "pending" }]);
+    expect(checkWaitDecision({ ...at, snapshot: pending })).toEqual({ kind: "wait" });
+    expect(checkWaitDecision({ ...at, now: 600_000, snapshot: pending })).toEqual({
+      kind: "failure",
+      detail: `600s 内未全部 success（GitHub HEAD ${HEAD.slice(0, 7)}）`,
+    });
+  });
+
+  test("a rollup still reporting another HEAD is not read before the deadline", () => {
+    const other = snapshot(H2, [{ name: "test", state: "success" }]);
+    expect(checkWaitDecision({ ...at, snapshot: other })).toEqual({ kind: "wait" });
+    expect(checkWaitDecision({ ...at, now: 600_000, snapshot: other })).toEqual({
+      kind: "failure",
+      detail: `600s 内未全部 success（GitHub HEAD ${H2.slice(0, 7)}）`,
+    });
+  });
+
+  test("a repository without checks merges on only after the grace period", () => {
+    expect(checkWaitDecision({ ...at, snapshot: snapshot(HEAD, []) })).toEqual({ kind: "wait" });
+    expect(checkWaitDecision({ ...at, now: 60_000, snapshot: snapshot(HEAD, []) })).toEqual({
+      kind: "success",
+      detail: "无检查（GitHub 在 60s 内未登记）",
+    });
+  });
+});
+
+describe("land pipeline", () => {
+  const ref: Ref = { repo, number: 77 };
+  const fetched = "h-fetched";
+  type Calls = { pushed: string[]; merged: string[]; verified: string[]; readbacks: string[]; lines: string[] };
+
+  const harness = (o: { rebase?: RebaseOutcome; checks?: number; mergeOk?: boolean; state?: PrState["state"] } = {}) => {
+    const calls: Calls = { pushed: [], merged: [], verified: [], readbacks: [], lines: [] };
+    const deps: LandDeps = {
+      workspace: async () => ({ path: "/w", close: async () => {} }),
+      fetchRefs: async () => {},
+      revParse: async () => fetched,
+      checkoutDetached: async () => {},
+      rebaseOnto: async () => o.rebase ?? { kind: "up-to-date", head: fetched },
+      localPatchId: async () => P1,
+      pushWithLease: async (_path, _headRef, expected) => {
+        calls.pushed.push(expected);
+      },
+      waitChecks: async () => o.checks ?? 0,
+      squashMerge: async (_ref, head) => {
+        calls.merged.push(head);
+        return { ok: o.mergeOk ?? true, output: "merge failed" };
+      },
+      prState: async () => ({ state: o.state ?? "MERGED", headRefOid: fetched, baseRefName: "main", defaultBranch: "main" }),
+      log: (line) => {
+        calls.lines.push(line);
+      },
+    };
+    const pipeline = (over: Partial<Pipeline> = {}): Pipeline => ({
+      ref,
+      pr: prData({ baseRefName: "main" }),
+      base: "main",
+      headRef: "work",
+      checkout: null,
+      pollSeconds: 0,
+      timeoutSeconds: 600,
+      verify: async (head) => {
+        calls.verified.push(head);
+        return [];
+      },
+      readback: async (state) => {
+        calls.readbacks.push(state.state);
+        return { ok: true, detail: "MERGED" };
+      },
+      ...over,
+    });
+    return { calls, deps, pipeline };
+  };
+
+  test("an up-to-date branch merges the fetched head and reads back", async () => {
+    const { calls, deps, pipeline } = harness();
+    expect(await landPipeline(pipeline(), deps)).toBe(0);
+    expect(calls.pushed).toEqual([]);
+    expect(calls.verified).toEqual([fetched]);
+    expect(calls.merged).toEqual([fetched]);
+    expect(calls.readbacks).toEqual(["MERGED"]);
+  });
+
+  test("a clean rebase that keeps the patch pushes the rewritten head and merges it", async () => {
+    const { calls, deps, pipeline } = harness({ rebase: { kind: "rebased", oldHead: "h-old", newHead: "h-new", oldPatch: P1, newPatch: P1 } });
+    expect(await landPipeline(pipeline(), deps)).toBe(0);
+    expect(calls.pushed).toEqual(["h-old"]);
+    expect(calls.merged).toEqual(["h-new"]);
+  });
+
+  test("a clean rebase that changed the patch pushes, then stops for a new review without merging", async () => {
+    const { calls, deps, pipeline } = harness({ rebase: { kind: "rebased", oldHead: "h-old", newHead: "h-new", oldPatch: P1, newPatch: P2 } });
+    expect(await landPipeline(pipeline(), deps)).toBe(1);
+    expect(calls.pushed).toEqual(["h-old"]);
+    expect(calls.merged).toEqual([]);
+    expect(calls.lines.join("")).toContain(`patch 已从 ${P1.slice(0, 7)} 变为 ${P2.slice(0, 7)}，需要复核`);
+  });
+
+  test("a conflicting rebase stops before any push or merge and lists the files", async () => {
+    const { calls, deps, pipeline } = harness({ rebase: { kind: "conflict", files: ["a.txt"] } });
+    expect(await landPipeline(pipeline(), deps)).toBe(1);
+    expect(calls.pushed).toEqual([]);
+    expect(calls.merged).toEqual([]);
+    expect(calls.lines.join("")).toContain("冲突\ta.txt");
+  });
+
+  test("a failed check stops before merge readiness is even checked", async () => {
+    const { calls, deps, pipeline } = harness({ checks: 1 });
+    expect(await landPipeline(pipeline(), deps)).toBe(1);
+    expect(calls.verified).toEqual([]);
+    expect(calls.merged).toEqual([]);
+  });
+
+  test("merge-ready problems stop the landing without merging", async () => {
+    const { calls, deps, pipeline } = harness();
+    const code = await landPipeline(
+      pipeline({
+        verify: async (head) => {
+          calls.verified.push(head);
+          return [err("review", "没有对当前输入有效的 review 结论")];
+        },
+      }),
+      deps,
+    );
+    expect(code).toBe(1);
+    expect(calls.verified).toEqual([fetched]);
+    expect(calls.merged).toEqual([]);
+    expect(calls.lines.join("")).toContain("ERROR review");
+  });
+
+  test("a refused merge stops without a readback", async () => {
+    const { calls, deps, pipeline } = harness({ mergeOk: false });
+    expect(await landPipeline(pipeline(), deps)).toBe(1);
+    expect(calls.merged).toEqual([fetched]);
+    expect(calls.readbacks).toEqual([]);
+    expect(calls.lines.join("")).toContain("merge failed");
+  });
+
+  test("a PR that GitHub did not report MERGED stops without a readback", async () => {
+    const { calls, deps, pipeline } = harness({ state: "CLOSED" });
+    expect(await landPipeline(pipeline(), deps)).toBe(1);
+    expect(calls.readbacks).toEqual([]);
+    expect(calls.lines.join("")).toContain("PR 状态是 CLOSED");
+  });
+
+  test("a readback that fails turns the landing into a failure", async () => {
+    const { calls, deps, pipeline } = harness();
+    const code = await landPipeline(
+      pipeline({
+        readback: async (state) => {
+          calls.readbacks.push(state.state);
+          return { ok: false, detail: "PR 已 MERGED，但 acme/app#7 是 OPEN" };
+        },
+      }),
+      deps,
+    );
+    expect(code).toBe(1);
+    expect(calls.merged).toEqual([fetched]);
+    expect(calls.readbacks).toEqual(["MERGED"]);
+  });
+});
+
+describe("tree landing order", () => {
+  test("tree PRs land every other repo first and the root repo last", () => {
+    const app = { owner: "acme", name: "app" };
+    const lib = { owner: "acme", name: "lib" };
+    const infra = { owner: "acme", name: "infra" };
+    expect(
+      landOrder([{ repo: app }, { repo: infra }, { repo: lib }], app).map((s) => s.repo.name),
+    ).toEqual(["infra", "lib", "app"]);
+    expect(landOrder([{ repo: app }], app).map((s) => s.repo.name)).toEqual(["app"]);
   });
 });
 

@@ -26,7 +26,7 @@ const HELP = `ghc — GitHub issue/PR 内容契约
   ghc ev check <issue|PR>                     证据是否齐全（issue：对当前检出 HEAD；PR：对 PR HEAD）
   ghc ev publish <PR|总体验收 issue>          发布证据包 comment
   ghc gate header <PR> --result PASS|FAIL [--design REF]
-                                              review 证据和 PR 结论 comment 的第一行（含当前 patch）
+                                              review 结论 comment 的第一行（含当前 patch）
   ghc gate list <PR>                          列出 review 结论的 patch 与有效性，以及当前 patch
   ghc merge-ready <PR> --issue <ref> [--head <sha>]
   ghc merge-ready <树根> --tree

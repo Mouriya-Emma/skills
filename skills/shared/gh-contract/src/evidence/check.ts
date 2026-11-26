@@ -57,15 +57,18 @@ export type CheckResult = {
 
 type Facts = { head: { repo: Repo; sha: string } | null; base: string | null; local: Checkout | null; patch: PatchId | null };
 
-async function factsFor(mode: Mode): Promise<Facts> {
+/** A PR's patch and merge base, resolved by the caller so the same check runs without reading GitHub. */
+export type TargetFacts = { readonly patch: PatchId; readonly base: string | null };
+
+async function factsFor(mode: Mode, target: TargetFacts | undefined): Promise<Facts> {
   switch (mode.kind) {
     case "pr": {
       const repo = mode.pr.headRepo ?? mode.pr.ref.repo;
       return {
         head: { repo, sha: mode.pr.headRefOid },
-        base: await mergeBaseRemote(mode.pr.ref.repo, mode.pr.baseRefOid, mode.pr.headRefOid),
+        base: target === undefined ? await mergeBaseRemote(mode.pr.ref.repo, mode.pr.baseRefOid, mode.pr.headRefOid) : target.base,
         local: null,
-        patch: await prPatchId(mode.pr.ref),
+        patch: target === undefined ? await prPatchId(mode.pr.ref) : target.patch,
       };
     }
     case "local": {
@@ -226,8 +229,9 @@ export async function checkEvidence(
   body: Extract<IssueBody, { kind: "standard" | "integration" }>,
   records: readonly EvidenceRecord[],
   mode: Mode,
+  target?: TargetFacts,
 ): Promise<CheckResult> {
-  const a = await factsFor(mode);
+  const a = await factsFor(mode, target);
   const integration = mode.kind === "integration";
   const test: TestState = integration ? "absent" : mode.kind === "pr" ? testStateOf(mode.pr.checks) : "deferred";
   const fallbackFace = body.scope.faces.find((f) => proofOf(f) === "testable") ?? body.scope.faces[0];

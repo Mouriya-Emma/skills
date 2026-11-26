@@ -14,13 +14,13 @@ export type Kind = (typeof KINDS)[number];
 export function templateOf(kind: Kind): string {
   switch (kind) {
     case "改":
-      return "改功能（前后对比）";
+      return "改功能";
     case "新":
       return "新功能";
     case "删":
       return "删功能";
     case "保持":
-      return "保持不变（前后对比）";
+      return "保持不变";
   }
 }
 

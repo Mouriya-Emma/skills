@@ -27,7 +27,7 @@ ghc <command>
 | `ghc ev attach <issue> --result N[,M] --shows "<看点>" [--face F] [--kind 改\|新\|删\|保持] [--step S] [--checkout PATH]... <image\|dir>...` | 把真实会话里截的图登记进证据 |
 | `ghc ev check <issue\|PR>` | 开 PR 前与发布前：逐条结果、逐个步骤报告 linked / stale / invalid / missing，以及没有任何结果经它观察的面；issue 在本地检出上检查时，以检出相对 `origin/<默认分支>`（树内 child 为 `origin/<缓冲分支>`）的补丁为基准 |
 | `ghc ev publish <PR\|总体验收 issue>` | 发布证据包 comment；无代码变更 issue 的检查发在它的 PR 上；全部结果由 PR 的 `test` 检查证明时不发证据包 |
-| `ghc gate header <PR> --result PASS\|FAIL [--design REF]` | 单轮 review 结论 comment 的第一行，原样放在 comment 开头；行内带本次审查的 `patch <patchId>`、HEAD、base 与 issue 修订 |
+| `ghc gate header <PR> --result PASS\|FAIL [--design REF]` | review 结论 comment 的第一行，原样放在 comment 开头（含当前 `patch <patchId>`、HEAD、base 与 issue 修订） |
 | `ghc gate list <PR>` | 列出 review 结论各自的 patch 与是否仍有效，并给出当前 patch：结论要求 base 与当前一致；`PASS` 还按 patch 判定，HEAD 变了而 patch 不变仍有效，patch 变了即失效；`FAIL` 还要求 issue 正文未修订 |
 | `ghc merge-ready <PR> --issue <ref> [--head <sha>]` | 合并交付一个 issue 的 PR 之前：PR open 非 draft、落在该去的分支、非 `evidence/` 检查全部 success、有对当前 patch 有效的 review `PASS`、按面所需的证据齐全（无代码变更 PR 改查正文要点与范围）；`--head` 是可选的前置断言，给出时 HEAD 必须仍是它 |
 | `ghc merge-ready <树根> --tree` | 合并 tree PR 之前：剩余 child 都已合入缓冲分支、总体验收证据包齐全且对缓冲分支当前补丁有效、每个 repo 恰有一个合规的 tree PR；树根之外 repo 的 tree PR 先合并 |
@@ -45,7 +45,7 @@ ghc <command>
   - 仓库还没有接入 `test` 检查时回退：全部结果都要发布当前补丁的 `ghc ev` 记录，禁止既无 CI `test` 也无运行证据。
   - 总体验收 issue 的结果始终要记录：`gui` 交含截图的 `after`；`iac` 交有序的 `preview`、`apply`、`readback`；`agent-config` 交 `session`；回退模式下的可测试面按面交步骤（`run`、`request`+`log`、`migrate`+`readback`）。
 - 证据挂在 issue 的预期结果上，每条记录观察改动后的产品，不存在改前的第二次检出：改动前的现场由 issue 的 `## 现场` 承载。issue 标的类型是参考，`--kind` 按实际类型采集，证据包标出差异。
-- 每条记录带 `--shows`：一句话写明 reviewer 能从它看出什么。怎样观察由采集的人在实现后决定：经真实入口；本次自写的测试、mock、stub 和取证 driver 的输出不算（`writing-pr` skill「证据」）。
+- 每条记录带 `--shows`：一句话写明 reviewer 能从它看出什么。怎样观察由采集的人在实现后决定：经真实入口。一次性的取证脚本、mock、stub 和 driver 的输出不写进 `ghc ev` 记录；随 PR 提交、由 `test` 检查运行的测试按上面的分层证明可测试面（`writing-pr` skill「证据」）。
 - issue 声明多个面时用 `--face` 指明记录经哪个面观察，面决定步骤（`ghc ev plan` 列出）；每个需要记录的面至少要有一条结果经它观察。
 - 采集前提交改动：checkout 有未提交的 tracked 改动时 `ghc` 拒绝采集。每条记录带着采集检出相对目标分支（PR 的 base、树内 child 的缓冲分支）的补丁指纹，证据按补丁判定是否仍有效：HEAD 变了而补丁不变（例如无冲突 rebase 追平 base）时记录照常 linked，不重采；补丁变了（解冲突时改动了本 PR 的 hunk、追加提交）或自记录以来又改了代码文件时失效，在新补丁上重采；自记录以来只改了 `.md` 文件且新 HEAD 是记录 HEAD 的后代时，记录仍然有效；issue 改写了某条结果的文字，只有这条结果的记录失效。
 - 同一条结果的同一步骤取最新一条有效记录；有序步骤（`iac`、`data`）按采集时间递增，顺序不对该结果无效。
