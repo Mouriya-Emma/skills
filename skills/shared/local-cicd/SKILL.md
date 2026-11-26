@@ -133,24 +133,7 @@ A repo may mix runner classes by responsibility. Public/cheap tests can run on c
 
 ## GARM onboarding / pool shape
 
-Onboarding commands: see `pve-vctcn/apps/runner/README.md` ("GARM 仓 onboarding" and "边缘 Incus provider"). The shape they produce:
-
-1. GARM repository entity with balancer `pack` and a GitHub webhook installed by GARM.
-2. A resident `lxd_local` pool (`priority=100`, enabled) with labels matching the workflow `runs-on`.
-3. An edge `incus_edge` pool (`priority=0`, image `images:ubuntu/24.04/cloud`) with the same base labels, flavor, OS, bootstrap timeout and `extra_specs` as the resident pool; the only intended label difference is an operator-added `cachyos` capability. It is created disabled; only the availability gate writes its `enabled` — never pass `--enabled` to an edge pool.
-4. Docker build/push or job-container workflows require the Docker-capable pool shape (`flavor=docker`, `runner-bootstrap-timeout=60`, helper `--docker`).
-5. Optional arm64 pool: `incus_oracle`, `--os-arch arm64`, tags `self-hosted,linux,arm64`, created `--enabled`, `extra_specs` copied from the resident pool (command in the runner README, "arm64 Incus provider（Oracle A1）").
-
-Existing pools are changed live with `garm-cli pool update` on VM 181, applying the same change to both pools of a repo; OpenTofu does not manage repository registrations, pool labels, or `extra_specs`.
-
-Runner environment differences a workflow must tolerate:
-
-- Mesh access comes from the runner host's NetBird peer: VM 181 (LXD bridge NAT) for resident runners, the CachyOS edge host for edge runners, `oracle-a1` for arm64 runners. Edge and arm64 runners cannot reach vctcn `172.16.1.0/24`.
-- In Docker-capable pools, `registry-mesh-hosts.sh` in `extra_specs` pins `registry.237575.xyz` to VM 182's mesh IP on every runner kind; non-Docker pools get no pin. See [Private registry](#private-registry-registry237575xyz) for what that path implies.
-- Only resident runners have the `/mnt/docker-images` cache for `catthehacker/ubuntu:act-24.04`; edge and arm64 runners pull it (the image has an arm64 variant).
-- Edge runner files have no Linux file capabilities (`ping` works through `ping_group_range`); values are fetched from OpenBao by `bao-exec` on the edge host, so that host needs the mesh route to both nodes; the edge host going offline fails the running job.
-- `yq` and `sops` are installed by `binary-tools-install.sh` only when the pool was built with them requested (`--extra-packages yq,…`; `sops` is no longer needed by the sync jobs). The installer downloads with `curl`, so request `curl` too, and `jq` for the sync script. `bao-exec` is not a pool package: each repo's install step puts it in the job-local toolchain dir. Do not assume these tools on other pools.
-- Do not inject old per-runner `netbird-install.sh`.
+Each onboarded repo gets a GARM repository entity, a resident `lxd_local` pool and an edge `incus_edge` pool with the same base labels and `extra_specs`, plus an optional `incus_oracle` arm64 pool; Docker build/push needs the Docker-capable pool shape. The exact pool shape, how pools are changed live, and the runner environment differences a workflow must tolerate (mesh reachability, registry pin, image cache, preinstalled tools) are in [references/garm-pools.md](references/garm-pools.md). Read it before onboarding a repo or writing a job that depends on runner tools or network.
 
 ## Private registry (`registry.237575.xyz`)
 
@@ -158,13 +141,7 @@ Owner: the registry + docker_auth app is `vctcn-edge/stacks/registry`; VM 182, K
 
 ### How authentication works
 
-The Docker password is a **Keycloak access token**, never the client secret:
-
-1. A token producer runs client_credentials against realm `registry`, client `registry`, and gets an access token whose `aud` includes `registry` (a client audience mapper; Keycloak 26.6.2+ refuses introspection otherwise).
-2. `docker login registry.237575.xyz -u sa-registry --password-stdin` with that token. The username must be literally `sa-registry`.
-3. On **every** registry token request (each push/pull scope), Docker re-sends that stored token; docker_auth introspects it at Keycloak and, if active, issues a 900-second registry JWT.
-
-So the Keycloak token must still be valid at every push and pull, not just at login. Its effective lifetime is **1800 seconds** today (realm SSO session cap), there is no refresh token, and the action does not renew it. Use the action's `expires-in` output, not a remembered default.
+The Docker password is a **Keycloak access token** minted with client_credentials (realm `registry`, client `registry`), never the client secret, and the username is literally `sa-registry`. docker_auth introspects that token on every push and pull scope, so it must still be valid at each of them, not just at login; its lifetime is **1800 seconds** today with no refresh, so use the action's `expires-in` output. The full flow, the runner network path, the Komodo pull side and a failure table are in [references/registry-internals.md](references/registry-internals.md).
 
 ### Onboarding a repo that pushes
 
@@ -188,32 +165,6 @@ Workflow step:
 Place the token step **after** the build and immediately before the first push, so login-to-last-push stays well under the token lifetime. A job with several publish phases separated by long work mints and logs in again before each phase. The action lives at `mouriya-devops/keycloak-token-action`; reference it by that path, since GitHub documents no redirect guarantee for `uses:` after a repository is renamed or transferred.
 
 To check the runner/registry seam without releasing anything, dispatch runner-canary's pull-only canary: `gh workflow run registry-auth.yml -R mouriya-devops/runner-canary`. Its `release.yml` is the full publish example.
-
-### Network path from GARM runners
-
-Docker-capable runners resolve `registry.237575.xyz` to VM 182's mesh IP via `/etc/hosts`; VM 182's `registry-mesh-forward` (socat, Stack `mesh-forward` in `vctcn-edge`) passes TCP :443 through to NPM, which terminates TLS and routes `/v2/` to the registry and `/auth` to docker_auth. TLS and the `/auth` realm URL are identical to the public path. Outside the mesh (GitHub-hosted runners, off-mesh laptops) the name resolves publicly to the vctcn host. Since pve-vctcn#360 the vctcn host hairpins `172.16.1.0/24` traffic for `192.99.9.212:80/443` back to NPM on CT 171, so the public path also works from inside vctcn; the pinned mesh path stays the default for both runner kinds.
-
-A push opens a burst of parallel connections at once (roughly one blob HEAD per layer). From the edge host (~180 ms RTT) those handshakes complete together, so the forwarder's listen queue must hold them: with socat's default backlog of 5 the VM 182 kernel reset most of them and edge pushes failed with `connection reset by peer` while auth had already succeeded (pve-vctcn#302, fixed with `backlog=1024`). Lowering `max-concurrent-uploads` does not help, because the HEAD checks are not bounded by it. If that error returns, check the listener first on VM 182: `ss -ltn 'sport = :443'` (Send-Q is the backlog) and `nstat -az TcpExtListenOverflows TcpExtTCPReqQFullDoCookies TcpOutRsts`.
-
-### Pull side (Komodo deploy)
-
-Komodo Periphery never uses a CI runner's login. The target Core's Komodo installation (`homelab-tf/komodo`, role `komodo-registry-account`) maintains a `DockerRegistryAccount` `{domain: registry.237575.xyz, username: sa-registry}` holding a client_credentials access token, re-minted every 15 minutes by the Komodo Action `refresh-registry-237575-token` (shorter than the 1800-second lifetime). The workload's Stack declaration binds it:
-
-```toml
-registry_provider = "registry.237575.xyz"
-registry_account = "sa-registry"
-```
-
-Only the primary homelab Core has this account today. Deploying a private image to another Core (trading included) first needs that Core's Komodo installation to provision the account and refresher (`iac-projects`). Before relying on a pull, check the account exists and the refresher Action's last run succeeded.
-
-### Telling failures apart
-
-| Symptom | Meaning | Where to look |
-|---|---|---|
-| `unauthorized: Auth failed` at login or on a later push/pull | Keycloak token rejected: expired, wrong secret, missing/unsynced repo secret, or audience/introspection broken | token age vs `expires-in`; repo listed in the IaC sync; docker_auth logs on VM 182; Keycloak `INTROSPECT_TOKEN_ERROR` |
-| `denied` / 403 | docker_auth ACL (only `sa-registry` is allowed) | username used at login |
-| `connection reset by peer` / EOF to the registry IP | transport, not auth; login and token issuance already succeeded | runner kind (resident vs edge); VM 182 mesh-forward backlog and listen-overflow counters (see Network path); then NPM logs |
-| Deploy pull fails, CI pull works | target Core's registry account or refresher | Core `DockerRegistryAccount`, refresher Action history, Stack `registry_account` binding |
 
 ## CI/CD 与其他 skill 的分工
 
