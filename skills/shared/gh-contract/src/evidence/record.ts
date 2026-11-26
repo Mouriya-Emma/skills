@@ -162,8 +162,9 @@ export async function loadRecords(issue: Ref): Promise<{ record: EvidenceRecord;
     const file = Bun.file(join(root, name, "record.json"));
     if (!(await file.exists())) continue; // a run still in progress or aborted without saving
     const json: unknown = await file.json();
-    // Records taken against acceptance rows predate result-keyed evidence and prove nothing about a result.
-    if (typeof json === "object" && json !== null && "rows" in json) continue;
+    // Records taken against acceptance rows predate result-keyed evidence and prove nothing about a result; a `before`
+    // record belongs to the removed base double-checkout and proves nothing about the result's new behaviour.
+    if (typeof json === "object" && json !== null && ("rows" in json || ("step" in json && json.step === "before"))) continue;
     const record = parseRecord(json);
     if (record.issue === refKey(issue)) out.push({ record, dir: join(root, name) });
   }

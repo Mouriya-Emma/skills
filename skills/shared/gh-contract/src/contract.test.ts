@@ -2,17 +2,20 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { type CheckResult, checkEvidence } from "./evidence/check.ts";
-import type { EvidenceRecord } from "./evidence/record.ts";
+import { type CheckResult, checkEvidence, type OutcomeStatus, outcomeVerdict, type Proof, type StepStatus } from "./evidence/check.ts";
+import { type EvidenceRecord, loadRecords } from "./evidence/record.ts";
 import { packComplete, parsePack, renderPack, toPack } from "./evidence/render.ts";
 import { clauseText } from "./fetch.ts";
-import { gateEntries, latestValid, parseDiffHeader, parseHeader, renderDiffHeader, renderHeader } from "./gate.ts";
-import type { Comment, Comparison, IssueData, PrData } from "./github.ts";
+import { type GateHeader, gateEntries, headerFor, latestValid, parseHeader, renderHeader } from "./gate.ts";
+import type { Comment, IssueData, PrData } from "./github.ts";
 import { codeRepo, type IssueBody, parseIssue, type TypedOutcome } from "./issue.ts";
+import { rebaseOnto } from "./land.ts";
 import { checkPrMergeReady } from "./merge.ts";
+import { FACES } from "./model.ts";
+import { EMPTY_PATCH, localPatchId, patchIdOfDiff } from "./patch.ts";
 import { checkPlacement, checkTreePr } from "./pr.ts";
 import type { Ref } from "./ref.ts";
-import { requirementFor } from "./requirements.ts";
+import { defaultStep, requirementFor } from "./requirements.ts";
 
 const repo = { owner: "acme", name: "app" };
 const errors = (text: string, hasParent = false) =>
@@ -51,6 +54,12 @@ const standardBody = (text: string, hasParent = false): Extract<IssueBody, { kin
   const body = parseIssue(text, { repo, hasParent }).value;
   if (body?.kind !== "standard") throw new Error("expected a standard issue body");
   return body;
+};
+
+const firstOutcome = (body: Extract<IssueBody, { kind: "standard" }>): TypedOutcome => {
+  const o = body.outcomes[0];
+  if (o === undefined) throw new Error("no outcome");
+  return o;
 };
 
 describe("issue contract", () => {
@@ -145,21 +154,124 @@ describe("issue contract", () => {
 });
 
 describe("evidence requirements", () => {
-  const steps = (face: Parameters<typeof requirementFor>[0], kind: Parameters<typeof requirementFor>[1]) =>
-    requirementFor(face, kind).steps.map((s) => `${s.step}@${s.anchor}${s.needsImage ? "+image" : ""}`);
-
-  test("a changed or preserved result is shown before and after; a new or removed one only after", () => {
-    expect(steps("cli", "改")).toEqual(["before@base", "run@head"]);
-    expect(steps("cli", "保持")).toEqual(["before@base", "run@head"]);
-    expect(steps("cli", "新")).toEqual(["run@head"]);
-    expect(steps("cli", "删")).toEqual(["run@head"]);
-    expect(steps("gui", "改")).toEqual(["before@base+image", "after@head+image"]);
-    expect(steps("gui", "新")).toEqual(["after@head+image"]);
+  test("no face owes a before step: the changed product is observed at its new behaviour only", () => {
+    const steps: string[] = FACES.flatMap((face) => requirementFor(face).steps.map((s) => s.step));
+    expect(steps.length).toBeGreaterThan(0);
+    expect(steps).not.toContain("before");
   });
 
-  test("a preview or a migration already shows what it replaces", () => {
-    expect(steps("iac", "改")).toEqual(["preview@head", "apply@head", "readback@head"]);
-    expect(steps("data", "改")).toEqual(["migrate@head", "readback@head"]);
+  test("iac owes an ordered preview, apply and readback", () => {
+    expect(requirementFor("iac")).toEqual({
+      steps: [
+        { step: "preview", needsImage: false },
+        { step: "apply", needsImage: false },
+        { step: "readback", needsImage: false },
+      ],
+      ordered: true,
+    });
+  });
+
+  test("gui needs an image of the result", () => {
+    expect(requirementFor("gui")).toEqual({ steps: [{ step: "after", needsImage: true }], ordered: false });
+  });
+
+  test("a step may be omitted only when its face owes exactly one", () => {
+    expect(defaultStep("gui")).toBe("after");
+    expect(defaultStep("cli")).toBe("run");
+    expect(defaultStep("service")).toBeNull();
+    expect(defaultStep("data")).toBeNull();
+  });
+});
+
+const root = mkdtempSync(join(tmpdir(), "ghc-contract-"));
+afterAll(() => rmSync(root, { recursive: true, force: true }));
+
+function git(cwd: string, ...args: string[]): string {
+  const r = Bun.spawnSync(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", ...args], { cwd });
+  if (r.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr.toString()}`);
+  return r.stdout.toString().trim();
+}
+
+let repoCount = 0;
+
+/** A fresh repo under the temporary root: `main` holds `files`, origin looks like the fixture repo. */
+function newRepo(files: Record<string, string> = { "a.txt": "1\n" }): { dir: string; first: string } {
+  const dir = join(root, `repo${repoCount++}`);
+  mkdirSync(dir);
+  git(dir, "init", "-b", "main");
+  git(dir, "config", "user.name", "t");
+  git(dir, "config", "user.email", "t@example.com");
+  git(dir, "config", "commit.gpgsign", "false");
+  git(dir, "remote", "add", "origin", "https://github.com/acme/app.git");
+  return { dir, first: commit(dir, files) };
+}
+
+/** Commit the given files (path → content) on the current branch; returns the new HEAD. */
+function commit(dir: string, files: Record<string, string>): string {
+  for (const [path, content] of Object.entries(files)) {
+    mkdirSync(dirname(join(dir, path)), { recursive: true });
+    writeFileSync(join(dir, path), content);
+  }
+  git(dir, "add", "-A");
+  git(dir, "commit", "-m", "c");
+  return git(dir, "rev-parse", "HEAD");
+}
+
+describe("patch identity", () => {
+  test("a clean rebase onto an advanced base keeps the patch id", async () => {
+    const { dir } = newRepo({ "a.txt": "1\n", "c.txt": "1\n" });
+    git(dir, "checkout", "-b", "work");
+    commit(dir, { "a.txt": "2\n" });
+    const before = await localPatchId(dir, "main");
+    expect(before).not.toBe(EMPTY_PATCH);
+    git(dir, "checkout", "main");
+    commit(dir, { "c.txt": "2\n" });
+    git(dir, "checkout", "work");
+    const r = await rebaseOnto(dir, "main");
+    if (r.kind !== "rebased") throw new Error(`expected a rebase, got ${r.kind}`);
+    expect(r.oldPatch).toBe(before);
+    expect(r.newPatch).toBe(before);
+    expect(r.newHead).not.toBe(r.oldHead);
+  });
+
+  test("editing an own hunk changes the patch id", async () => {
+    const { dir } = newRepo({ "a.txt": "1\n", "c.txt": "1\n" });
+    git(dir, "checkout", "-b", "work");
+    commit(dir, { "a.txt": "2\n" });
+    const before = await localPatchId(dir, "main");
+    git(dir, "checkout", "main");
+    commit(dir, { "c.txt": "2\n" });
+    git(dir, "checkout", "work");
+    const r = await rebaseOnto(dir, "main");
+    if (r.kind !== "rebased") throw new Error(`expected a rebase, got ${r.kind}`);
+    commit(dir, { "a.txt": "3\n" });
+    const after = await localPatchId(dir, "main");
+    expect(after).not.toBe(before);
+    expect(after).not.toBe(r.newPatch);
+  });
+
+  test("a checkout already on its base, and an empty diff, are the fixed empty patch", async () => {
+    const { dir } = newRepo();
+    expect(await localPatchId(dir, "main")).toBe(EMPTY_PATCH);
+    expect(await patchIdOfDiff("")).toBe(EMPTY_PATCH);
+    expect(await patchIdOfDiff(" \n\t\n")).toBe(EMPTY_PATCH);
+    expect(EMPTY_PATCH).toBe("0".repeat(40));
+  });
+
+  test("a conflicting rebase reports the files, aborts, and leaves HEAD untouched with no merge commit", async () => {
+    const { dir } = newRepo({ "a.txt": "base\n" });
+    git(dir, "checkout", "-b", "work");
+    const workHead = commit(dir, { "a.txt": "work\n" });
+    git(dir, "checkout", "main");
+    commit(dir, { "a.txt": "main\n" });
+    git(dir, "checkout", "work");
+    const r = await rebaseOnto(dir, "main");
+    expect(r).toEqual({ kind: "conflict", files: ["a.txt"] });
+    expect(git(dir, "rev-parse", "HEAD")).toBe(workHead);
+    expect(git(dir, "rev-parse", "--abbrev-ref", "HEAD")).toBe("work");
+    expect(git(dir, "status", "--porcelain")).toBe("");
+    expect(git(dir, "rev-list", "--count", "--merges", "HEAD")).toBe("0");
+    expect(git(dir, "rev-list", "--count", "HEAD")).toBe("2");
   });
 });
 
@@ -179,6 +291,9 @@ const issueData = (body = ""): IssueData => ({
 });
 
 const HEAD = "a".repeat(40);
+const H2 = "c".repeat(40);
+const P1 = "1".repeat(40);
+const P2 = "2".repeat(40);
 
 const prData = (over: Partial<PrData> = {}): PrData => ({
   ref: { repo, number: 77 },
@@ -216,122 +331,183 @@ function recordFor(o: TypedOutcome, over: Partial<EvidenceRecord> = {}): Evidenc
     capture: { kind: "run", command: "app run | grep `x`", shell: "/bin/zsh", cwd: "/w", completion: { kind: "exited", code: 0 }, stdoutLines: 1, stderrLines: 0 },
     startedAt: "2026-11-03T00:00:00.000Z",
     endedAt: "2026-11-03T00:00:01.500Z",
-    checkouts: [{ repo: "acme/app", path: "/w", head: HEAD, cleanBefore: true, cleanAfter: true }],
+    checkouts: [{ repo: "acme/app", path: "/w", head: HEAD, patchId: null, cleanBefore: true, cleanAfter: true }],
     attachments: [],
     ...over,
   };
 }
 
+const localMode = (dir: string) => ({ kind: "local" as const, checkout: { path: dir, repo }, baseRef: "main" });
+
+const checkLocal = async (dir: string, text: string, records: readonly EvidenceRecord[]): Promise<CheckResult> => {
+  const body = standardBody(text);
+  return checkEvidence(issueData(text), body, records, localMode(dir));
+};
+
 describe("evidence check", () => {
-  // Integration mode judges records without a git checkout: it owes only the head-anchored steps.
+  // Integration mode judges records without a checkout: every face falls back to records.
   const mode = { kind: "integration" as const, merges: [] };
   const check = (text: string, records: (body: Extract<IssueBody, { kind: "standard" }>) => EvidenceRecord[]): Promise<CheckResult> => {
     const body = standardBody(text);
     return checkEvidence(issueData(text), body, records(body), mode);
   };
-  const first = (body: Extract<IssueBody, { kind: "standard" }>): TypedOutcome => {
-    const o = body.outcomes[0];
-    if (o === undefined) throw new Error("no outcome");
-    return o;
-  };
 
   test("a record proves the result it was taken for", async () => {
-    const r = await check(standard({ outcomes: ["- 结果 1 [新]：a"] }), (b) => [recordFor(first(b))]);
+    const r = await check(standard({ outcomes: ["- 结果 1 [新]：a"] }), (b) => [recordFor(firstOutcome(b))]);
     expect(r.complete).toBe(true);
   });
 
   test("rewording a result makes its evidence stale; rewording another part of the issue does not", async () => {
     const before = standard({ outcomes: ["- 结果 1 [新]：a"] });
-    const taken = recordFor(first(standardBody(before)));
+    const taken = recordFor(firstOutcome(standardBody(before)));
     const reworded = await check(before.replace("：a", "：b"), () => [taken]);
-    expect(reworded.outcomes[0]?.steps[0]?.status).toEqual({ kind: "stale", reason: "结果 1 的文字在采集之后改过" });
+    expect(reworded.outcomes[0]?.proof).toEqual({
+      kind: "records",
+      steps: [{ rule: { step: "run", needsImage: false }, status: { kind: "stale", reason: "结果 1 的文字在采集之后改过" } }],
+      orderProblem: null,
+    });
     const elsewhere = await check(before.replace("## 目标\nx", "## 目标\n另一种说法"), () => [taken]);
     expect(elsewhere.complete).toBe(true);
   });
 
   test("the collector's kind decides the template when it differs from the issue's tag", async () => {
     const r = await check(standard({ faces: ["service"], outcomes: ["- 结果 1 [改]：a"] }), (b) => [
-      recordFor(first(b), { face: "service", kind: "新", step: "request" }),
+      recordFor(firstOutcome(b), { face: "service", kind: "新", step: "request" }),
     ]);
     expect(r.outcomes[0]?.kind).toBe("新");
-    expect(r.outcomes[0]?.steps.map((s) => `${s.rule.step}:${s.status.kind}`)).toEqual(["request:linked", "log:missing"]);
+    const proof = r.outcomes[0]?.proof;
+    expect(proof?.kind).toBe("records");
+    expect(proof !== undefined && proof.kind === "records" ? proof.steps.map((s) => `${s.rule.step}:${s.status.kind}`) : null).toEqual(["request:linked", "log:missing"]);
   });
 
   test("a declared face nothing was observed through keeps the evidence incomplete", async () => {
-    const r = await check(standard({ faces: ["cli", "library"], outcomes: ["- 结果 1 [新]：a"] }), (b) => [recordFor(first(b))]);
+    const r = await check(standard({ faces: ["cli", "library"], outcomes: ["- 结果 1 [新]：a"] }), (b) => [recordFor(firstOutcome(b))]);
     expect(r.unseenFaces).toEqual(["library"]);
+    expect(r.complete).toBe(false);
+  });
+
+  test("without a test check every face falls back to records instead of passing empty", async () => {
+    const text = standard({ faces: ["service"], outcomes: ["- 结果 1 [新]：a"] });
+    const r = await checkEvidence(issueData(text), standardBody(text), [], mode);
+    expect(r.outcomes[0]?.proof.kind).toBe("records");
+    expect(outcomeVerdict(r.outcomes[0] as OutcomeStatus)).toBe("missing");
+    expect(r.complete).toBe(false);
+  });
+});
+
+describe("evidence check for testable faces", () => {
+  test("a testable issue owes no records: the test check proves every result", async () => {
+    const text = standard({ outcomes: ["- 结果 1 [新]：a", "- 结果 2 [改]：b"] });
+    const { dir } = newRepo();
+    const r = await checkLocal(dir, text, []);
+    expect(r.complete).toBe(true);
+    expect(r.outcomes.map((x) => x.proof)).toEqual([
+      { kind: "test", state: "deferred" },
+      { kind: "test", state: "deferred" },
+    ]);
+    expect(r.unseenFaces).toEqual([]);
+  });
+
+  test("a pending or failing test check does not prove a testable result", () => {
+    const o = firstOutcome(standardBody(standard()));
+    const outcome = (state: "success" | "deferred" | "pending" | "failure"): OutcomeStatus => ({ outcome: o, face: "service", kind: o.kind, proof: { kind: "test", state } });
+    expect(outcomeVerdict(outcome("success"))).toBe("linked");
+    expect(outcomeVerdict(outcome("deferred"))).toBe("linked");
+    expect(outcomeVerdict(outcome("pending"))).toBe("invalid");
+    expect(outcomeVerdict(outcome("failure"))).toBe("invalid");
+  });
+
+  test("a mixed service and gui issue needs a gui record but no service records", async () => {
+    const text = standard({ faces: ["service", "gui"], outcomes: ["- 结果 1 [新]：接口返回新字段", "- 结果 2 [新]：页面显示新字段"] });
+    const { dir, first } = newRepo();
+    const body = standardBody(text);
+    const gui = body.outcomes[1];
+    if (gui === undefined) throw new Error("no second outcome");
+    const record = recordFor(gui, {
+      face: "gui",
+      step: "after",
+      checkouts: [{ repo: "acme/app", path: dir, head: first, patchId: null, cleanBefore: true, cleanAfter: true }],
+      attachments: [{ source: "shot.png", url: "https://example.com/shot.png", contentType: "image/png", bytes: 10 }],
+    });
+    const r = await checkLocal(dir, text, [record]);
+    expect(r.outcomes.map((x) => [x.face, x.proof.kind, outcomeVerdict(x)])).toEqual([
+      ["service", "test", "linked"],
+      ["gui", "records", "linked"],
+    ]);
+    expect(r.unseenFaces).toEqual([]);
+    expect(r.complete).toBe(true);
+  });
+
+  test("a gui record without an image does not prove the gui result", async () => {
+    const text = standard({ faces: ["gui"], outcomes: ["- 结果 1 [新]：页面显示新字段"] });
+    const { dir, first } = newRepo();
+    const record = recordFor(firstOutcome(standardBody(text)), {
+      face: "gui",
+      step: "after",
+      checkouts: [{ repo: "acme/app", path: dir, head: first, patchId: null, cleanBefore: true, cleanAfter: true }],
+    });
+    const r = await checkLocal(dir, text, [record]);
+    expect(r.outcomes[0]?.proof).toEqual({
+      kind: "records",
+      steps: [{ rule: { step: "after", needsImage: true }, status: { kind: "invalid", reason: "缺截图" } }],
+      orderProblem: null,
+    });
     expect(r.complete).toBe(false);
   });
 });
 
 describe("evidence check after the HEAD moved", () => {
-  const root = mkdtempSync(join(tmpdir(), "ghc-drift-"));
-  afterAll(() => rmSync(root, { recursive: true, force: true }));
-
-  const git = (cwd: string, ...args: string[]): string => {
-    const r = Bun.spawnSync(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", ...args], { cwd });
-    if (r.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr.toString()}`);
-    return r.stdout.toString().trim();
-  };
-  /** Commit the given files (path → content) on the current branch; returns the new HEAD. */
-  const commit = (dir: string, files: Record<string, string>): string => {
-    for (const [path, content] of Object.entries(files)) {
-      mkdirSync(dirname(join(dir, path)), { recursive: true });
-      writeFileSync(join(dir, path), content);
-    }
-    git(dir, "add", "-A");
-    git(dir, "commit", "-m", "c");
-    return git(dir, "rev-parse", "HEAD");
-  };
-  let n = 0;
-  const freshRepo = (): { dir: string; first: string } => {
-    const dir = join(root, `r${n++}`);
-    mkdirSync(dir);
-    git(dir, "init", "-b", "main");
-    git(dir, "remote", "add", "origin", "https://github.com/acme/app.git");
-    return { dir, first: commit(dir, { "src/a.ts": "1", "README.md": "1" }) };
-  };
+  const text = standard({ faces: ["agent-config"], outcomes: ["- 结果 1 [新]：新指令生效"] });
+  const recordAt = (dir: string, taken: string): EvidenceRecord =>
+    recordFor(firstOutcome(standardBody(text)), {
+      face: "agent-config",
+      step: "session",
+      capture: { kind: "attach" },
+      checkouts: [{ repo: "acme/app", path: dir, head: taken, patchId: null, cleanBefore: true, cleanAfter: true }],
+    });
 
   /** Evidence taken at `taken` is judged against whatever the checkout's HEAD is now. */
-  const statusAt = async (dir: string, taken: string) => {
-    const text = standard({ outcomes: ["- 结果 1 [新]：a"] });
-    const body = standardBody(text);
-    const o = body.outcomes[0];
-    if (o === undefined) throw new Error("no outcome");
-    const record = recordFor(o, { checkouts: [{ repo: "acme/app", path: dir, head: taken, cleanBefore: true, cleanAfter: true }] });
-    const r = await checkEvidence(issueData(text), body, [record], { kind: "local", checkout: { path: dir, repo }, baseRef: "main" });
-    return r.outcomes[0]?.steps[0]?.status;
+  const statusAt = async (dir: string, taken: string): Promise<OutcomeStatus["proof"] | undefined> => {
+    const r = await checkLocal(dir, text, [recordAt(dir, taken)]);
+    return r.outcomes[0]?.proof;
   };
 
+  const stepped = (status: StepStatus): Proof => ({ kind: "records", steps: [{ rule: { step: "session", needsImage: false }, status }], orderProblem: null });
+
   test("only Markdown changed since the record: it stays linked", async () => {
-    const { dir, first } = freshRepo();
+    const { dir, first } = newRepo({ "src/a.ts": "1", "README.md": "1" });
     commit(dir, { "README.md": "2", "docs/Guide.MD": "new" });
-    expect((await statusAt(dir, first))?.kind).toBe("linked");
+    expect(await statusAt(dir, first)).toEqual(stepped({ kind: "linked", record: recordAt(dir, first) }));
   });
 
   test("a code file changed next to Markdown: stale, naming the files", async () => {
-    const { dir, first } = freshRepo();
+    const { dir, first } = newRepo({ "src/a.ts": "1", "README.md": "1" });
     const head = commit(dir, { "README.md": "2", "src/a.ts": "2" });
-    expect(await statusAt(dir, first)).toEqual({
+    const proof = await statusAt(dir, first);
+    expect(proof?.kind).toBe("records");
+    expect(proof !== undefined && proof.kind === "records" ? proof.steps[0]?.status : null).toEqual({
       kind: "stale",
       reason: `采于 ${first.slice(0, 7)}，当前 HEAD ${head.slice(0, 7)}；之后改动 README.md, src/a.ts`,
     });
   });
 
   test("a code file renamed to a Markdown name is still a code change", async () => {
-    const { dir, first } = freshRepo();
+    const { dir, first } = newRepo({ "src/a.ts": "1", "README.md": "1" });
     git(dir, "mv", "src/a.ts", "src/a.md");
     commit(dir, {});
-    expect((await statusAt(dir, first))?.kind).toBe("stale");
+    const proof = await statusAt(dir, first);
+    expect(proof !== undefined && proof.kind === "records" ? proof.steps[0]?.status.kind : null).toBe("stale");
   });
 
   test("a HEAD that does not descend from the record's HEAD is stale even when only Markdown differs", async () => {
-    const { dir, first } = freshRepo();
+    const { dir, first } = newRepo({ "src/a.ts": "1", "README.md": "1" });
     git(dir, "checkout", "-b", "other");
     const side = commit(dir, { "NOTES.md": "x" });
     git(dir, "checkout", "main");
     const head = commit(dir, { "README.md": "2" });
-    expect(await statusAt(dir, side)).toEqual({
+    const proof = await statusAt(dir, side);
+    expect(proof?.kind).toBe("records");
+    expect(proof !== undefined && proof.kind === "records" ? proof.steps[0]?.status : null).toEqual({
       kind: "stale",
       reason: `采于 ${side.slice(0, 7)}，当前 HEAD ${head.slice(0, 7)}；当前 HEAD 不是采集 HEAD 的后代`,
     });
@@ -339,12 +515,113 @@ describe("evidence check after the HEAD moved", () => {
   });
 });
 
+describe("evidence records on the target patch", () => {
+  const text = standard({ faces: ["agent-config"], outcomes: ["- 结果 1 [新]：新指令生效"] });
+  const recordAt = (dir: string, head: string, patchId: string | null): EvidenceRecord =>
+    recordFor(firstOutcome(standardBody(text)), {
+      face: "agent-config",
+      step: "session",
+      capture: { kind: "attach" },
+      checkouts: [{ repo: "acme/app", path: dir, head, patchId, cleanBefore: true, cleanAfter: true }],
+    });
+
+  test("a record stays linked across a clean rebase: its checkout patch equals the current patch although HEAD moved", async () => {
+    const { dir } = newRepo({ "a.txt": "1\n", "c.txt": "1\n" });
+    git(dir, "checkout", "-b", "work");
+    const taken = commit(dir, { "a.txt": "2\n" });
+    const patch = await localPatchId(dir, "main");
+    git(dir, "checkout", "main");
+    commit(dir, { "c.txt": "2\n" });
+    git(dir, "checkout", "work");
+    const rebased = await rebaseOnto(dir, "main");
+    if (rebased.kind !== "rebased") throw new Error(`expected a rebase, got ${rebased.kind}`);
+    expect(rebased.newHead).not.toBe(taken);
+    const r = await checkLocal(dir, text, [recordAt(dir, taken, patch)]);
+    expect(r.outcomes[0]?.proof.kind).toBe("records");
+    expect(outcomeVerdict(r.outcomes[0] as OutcomeStatus)).toBe("linked");
+    expect(r.complete).toBe(true);
+  });
+
+  test("editing the PR's own hunk after capture goes stale, naming both patches and the file", async () => {
+    const { dir } = newRepo();
+    git(dir, "checkout", "-b", "work");
+    const taken = commit(dir, { "a.txt": "2\n" });
+    const takenPatch = await localPatchId(dir, "main");
+    commit(dir, { "a.txt": "3\n" });
+    const current = await localPatchId(dir, "main");
+    const r = await checkLocal(dir, text, [recordAt(dir, taken, takenPatch)]);
+    expect(r.outcomes[0]?.proof).toEqual({
+      kind: "records",
+      steps: [
+        {
+          rule: { step: "session", needsImage: false },
+          status: { kind: "stale", reason: `patch 已从 ${takenPatch.slice(0, 7)} 变为 ${current.slice(0, 7)}；之后改动 a.txt` },
+        },
+      ],
+      orderProblem: null,
+    });
+    expect(r.complete).toBe(false);
+  });
+});
+
+describe("evidence store", () => {
+  test("a stored before-step record is skipped, not parsed, and does not hide valid records", async () => {
+    const state = join(root, "state");
+    const legacyDir = join(state, "ghc", "acme", "app", "7", "20260101T000000Z-aaaaaa");
+    const validDir = join(state, "ghc", "acme", "app", "7", "20260101T010000Z-bbbbbb");
+    mkdirSync(legacyDir, { recursive: true });
+    mkdirSync(validDir, { recursive: true });
+    const legacy = {
+      id: "old",
+      issue: "acme/app#7",
+      results: [],
+      face: "cli",
+      kind: "改",
+      step: "before",
+      shows: "x",
+      capture: { kind: "attach" },
+      startedAt: "2026-01-01T00:00:00.000Z",
+      endedAt: "2026-01-01T00:00:00.000Z",
+      checkouts: [],
+      attachments: [],
+    };
+    writeFileSync(join(legacyDir, "record.json"), JSON.stringify(legacy));
+    const text = standard({ outcomes: ["- 结果 1 [新]：a"] });
+    writeFileSync(join(validDir, "record.json"), JSON.stringify(recordFor(firstOutcome(standardBody(text)))));
+    const saved = process.env.XDG_STATE_HOME;
+    process.env.XDG_STATE_HOME = state;
+    try {
+      expect((await loadRecords({ repo, number: 7 })).map((x) => x.record.id)).toEqual(["r1"]);
+    } finally {
+      if (saved === undefined) delete process.env.XDG_STATE_HOME;
+      else process.env.XDG_STATE_HOME = saved;
+    }
+  });
+
+  test("any other unknown step is still a malformed record, not silently skipped", async () => {
+    const state = join(root, "state-bad");
+    const dir = join(state, "ghc", "acme", "app", "8", "20260101T000000Z-cccccc");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "record.json"),
+      JSON.stringify({ id: "bad", issue: "acme/app#8", results: [], face: "cli", kind: "改", step: "bogus", shows: "x", capture: { kind: "attach" }, startedAt: "t", endedAt: "t", checkouts: [], attachments: [] }),
+    );
+    const saved = process.env.XDG_STATE_HOME;
+    process.env.XDG_STATE_HOME = state;
+    try {
+      expect(loadRecords({ repo, number: 8 })).rejects.toThrow("record: unknown step bogus");
+    } finally {
+      if (saved === undefined) delete process.env.XDG_STATE_HOME;
+      else process.env.XDG_STATE_HOME = saved;
+    }
+  });
+});
+
 describe("evidence pack", () => {
   test("a rendered pack parses back to the same summary and tells the reviewer what each record shows", async () => {
     const text = standard({ faces: ["cli", "gui"], outcomes: ["- 结果 1 [新]：输出包含新字段", "- 结果 2 [删]：旧开关消失"] });
     const body = standardBody(text);
-    const o1 = body.outcomes[0];
-    if (o1 === undefined) throw new Error("no outcome");
+    const o1 = firstOutcome(body);
     const record = recordFor(o1);
     const check = await checkEvidence(issueData(text), body, [record], { kind: "integration", merges: [] });
     const pack = toPack(check, "2026-11-03T00:00:02Z");
@@ -387,106 +664,204 @@ describe("contract references", () => {
 });
 
 describe("gate header", () => {
-  test("renders and parses the inputs a verdict observed", () => {
-    const hFail = { verdict: { kind: "fail" as const, gate: null }, head: "b".repeat(40), base: "main", issueRev: "2026-11-02T00:00:00Z", design: null };
-    const lineFail = renderHeader(hFail);
-    expect(lineFail).toBe(`Gate 结论 · review · FAIL · HEAD ${"b".repeat(40)} · base main · issue rev 2026-11-02T00:00:00Z · 设计 无`);
-    expect(parseHeader(`${lineFail}\n\n发现……`)).toEqual(hFail);
+  const issue = issueData(standard());
+  const passLine = (patch: string, head: string, base = "main") => renderHeader({ verdict: { kind: "pass" }, patch, head, base, issueRev: issue.bodyRev, design: null });
+  const failLine = (patch: string, issueRev: string, base = "main") =>
+    renderHeader({ verdict: { kind: "fail", gate: null }, patch, head: HEAD, base, issueRev, design: null });
+  const entries = (patch: string, comments: readonly Comment[], pr: Partial<PrData> = {}) =>
+    gateEntries(prData({ comments, baseRefName: "main", ...pr }), issue, patch);
 
-    const hLegacy = { verdict: { kind: "fail" as const, gate: 3 }, head: "b".repeat(40), base: "main", issueRev: "2026-11-02T00:00:00Z", design: null };
-    const lineLegacy = renderHeader(hLegacy);
-    expect(lineLegacy).toBe(`Gate 结论 · review · FAIL@Gate3 · HEAD ${"b".repeat(40)} · base main · issue rev 2026-11-02T00:00:00Z · 设计 无`);
-    expect(parseHeader(`${lineLegacy}\n\n发现……`)).toEqual(hLegacy);
-
-    expect(parseHeader("Gate 结论 · review · PASS · HEAD abc · base main · issue rev x · 设计 无")).toBeNull();
-  });
-
-  test("a review diff verdict and a PR review verdict never read as each other", () => {
-    const diff = { verdict: "pass" as const, head: "b".repeat(40), issueRev: "2026-11-02T00:00:00Z", design: null };
-    const diffLine = renderDiffHeader(diff);
-    const prLine = renderHeader({ verdict: { kind: "pass" }, head: diff.head, base: "main", issueRev: diff.issueRev, design: null });
-    expect(parseDiffHeader(`${diffLine}\n\n发现……`)).toEqual(diff);
-    expect(parseHeader(diffLine)).toBeNull();
-    expect(parseDiffHeader(prLine)).toBeNull();
-  });
-
-  test("a PASS verdict stays valid after HEAD advances to resolve merge conflicts, whereas FAIL goes stale", () => {
-    const h1 = "a".repeat(40);
-    const h2 = "c".repeat(40);
-    const iss = issueData();
-    const failHeader = renderHeader({ verdict: { kind: "fail", gate: null }, head: h1, base: "tree/acme-app-1", issueRev: iss.bodyRev, design: null });
-    const passHeader = renderHeader({ verdict: { kind: "pass" }, head: h1, base: "tree/acme-app-1", issueRev: iss.bodyRev, design: null });
-    const prAfterConflictMerge = prData({
-      headRefOid: h2,
-      comments: [comment(1, "2026-11-03T00:00:00Z", failHeader), comment(2, "2026-11-03T01:00:00Z", passHeader)],
+  test("a verdict line roundtrips with the patch it reviewed", () => {
+    const h: GateHeader = { verdict: { kind: "pass" }, patch: P1, head: HEAD, base: "main", issueRev: issue.bodyRev, design: null };
+    expect(renderHeader(h)).toBe(`Gate 结论 · review · PASS · patch ${P1} · HEAD ${HEAD} · base main · issue rev ${issue.bodyRev} · 设计 无`);
+    expect(parseHeader(`Gate 结论 · review · PASS · patch ${P1} · HEAD ${HEAD} · base main · issue rev ${issue.bodyRev} · 设计 无\n\n发现后记`)).toEqual(h);
+    const failed = `Gate 结论 · review · FAIL@Gate3 · patch ${P2} · HEAD ${H2} · base tree/acme-app-1 · issue rev 2026-01-01T00:00:00Z · 设计 acme/app#3`;
+    expect(parseHeader(failed)).toEqual({
+      verdict: { kind: "fail", gate: 3 },
+      patch: P2,
+      head: H2,
+      base: "tree/acme-app-1",
+      issueRev: "2026-01-01T00:00:00Z",
+      design: "acme/app#3",
     });
-    const entries = gateEntries(prAfterConflictMerge, iss);
-    expect(entries[0]?.stale).toEqual([`HEAD 已从 ${h1.slice(0, 7)} 变为 ${h2.slice(0, 7)}`]);
-    expect(entries[1]?.stale).toEqual([]);
-    expect(latestValid(entries)?.header.verdict).toEqual({ kind: "pass" });
+  });
+
+  test("a line without the patch is not a verdict: it observed nothing identifiable", () => {
+    expect(parseHeader(`Gate 结论 · review · PASS · HEAD ${HEAD} · base main · issue rev x · 设计 无`)).toBeNull();
+    expect(parseHeader(`Gate 结论 · review · PASS · patch ${P1} · HEAD ${HEAD.slice(0, 7)} · base main · issue rev x · 设计 无`)).toBeNull();
+  });
+
+  test("a PASS stays valid after HEAD moves while the patch is the same", () => {
+    const e = entries(P1, [comment(1, "2026-11-03T01:00:00Z", passLine(P1, HEAD))], { headRefOid: H2 });
+    expect(e[0]?.stale).toEqual([]);
+    expect(latestValid(e)?.header.verdict).toEqual({ kind: "pass" });
+  });
+
+  test("a PASS is not invalidated by a revised issue body: only the reviewed patch anchors it", () => {
+    const revised = renderHeader({ verdict: { kind: "pass" }, patch: P1, head: HEAD, base: "main", issueRev: "2026-11-01T00:00:00Z", design: null });
+    const e = entries(P1, [comment(1, "2026-11-03T01:00:00Z", revised)]);
+    expect(e[0]?.stale).toEqual([]);
+    expect(latestValid(e)?.header.issueRev).toBe("2026-11-01T00:00:00Z");
+  });
+
+  test("the verdict line names the live PR inputs and the patch being reviewed", () => {
+    const line = headerFor(prData({ baseRefName: "main" }), issue, "PASS", null, P1);
+    expect(line).toBe(`Gate 结论 · review · PASS · patch ${P1} · HEAD ${HEAD} · base main · issue rev ${issue.bodyRev} · 设计 无`);
+  });
+
+  test("a PASS goes stale against a changed patch, naming both patches", () => {
+    const e = entries(P2, [comment(1, "2026-11-03T01:00:00Z", passLine(P1, HEAD))]);
+    expect(e[0]?.stale).toEqual([`patch 已从 ${P1.slice(0, 7)} 变为 ${P2.slice(0, 7)}`]);
+    expect(latestValid(e)).toBeNull();
+  });
+
+  test("a FAIL goes stale when the issue body was revised after it", () => {
+    const e = entries(P1, [comment(1, "2026-11-03T01:00:00Z", failLine(P1, "2026-11-01T00:00:00Z"))]);
+    expect(e[0]?.stale).toEqual([`issue 正文已修订（2026-11-01T00:00:00Z → ${issue.bodyRev}）`]);
+    expect(latestValid(e)).toBeNull();
+  });
+
+  test("a verdict goes stale when the PR's base branch changed", () => {
+    const e = entries(P1, [comment(1, "2026-11-03T01:00:00Z", passLine(P1, HEAD, "tree/acme-app-1"))], { baseRefName: "main" });
+    expect(e[0]?.stale).toEqual(["base 已从 tree/acme-app-1 变为 main"]);
   });
 });
 
-describe("merge readiness after PASS", () => {
-  const passed = HEAD;
-  const merged = "c".repeat(40);
-  const child: IssueData = { ...issueData(), parent: { repo, number: 1 } };
-  const passLine = renderHeader({ verdict: { kind: "pass" }, head: passed, base: "tree/acme-app-1", issueRev: child.bodyRev, design: null });
-  const diffLine = (o: { verdict?: "pass" | "fail"; head?: string; issueRev?: string } = {}) =>
-    renderDiffHeader({ verdict: o.verdict ?? "pass", head: o.head ?? passed, issueRev: o.issueRev ?? child.bodyRev, design: null });
-  const passCommit = { sha: passed, parents: 1 };
-  const baseMerge = { sha: merged, parents: 2 };
-  const fromBase = { sha: "e".repeat(40), parents: 1 };
-  const extra = { sha: "d".repeat(40), parents: 1 };
-  // The PR passed review at `passed`, then moved to `merged`; evidence exists only on the commit that passed.
-  const problems = async (o: { diff?: Comment[]; pr?: Partial<PrData>; sincePass?: Comparison; sinceBase?: Comparison } = {}): Promise<string[]> => {
+describe("merge readiness", () => {
+  const text = standard();
+  const issue = issueData(text);
+  const passLine = (patch: string, head: string) => renderHeader({ verdict: { kind: "pass" }, patch, head, base: "main", issueRev: issue.bodyRev, design: null });
+  const failLine = () => renderHeader({ verdict: { kind: "fail", gate: null }, patch: P1, head: HEAD, base: "main", issueRev: issue.bodyRev, design: null });
+  const evidence = (complete: boolean): CheckResult => ({
+    issue,
+    outcomes: [],
+    unseenFaces: [],
+    complete,
+    patch: P1,
+    heads: [{ repo, head: HEAD, patchId: P1 }],
+    base: "b".repeat(40),
+  });
+  const readyPr = (over: Partial<PrData> = {}): PrData => prData({ baseRefName: "main", closingIssues: [{ repo, number: 7 }], ...over });
+  const problems = async (
+    o: { pr?: Partial<PrData>; comments?: readonly Comment[]; patch?: string; evidence?: CheckResult | null; head?: string | null } = {},
+  ): Promise<string[]> => {
     const d = await checkPrMergeReady(
-      prData({ headRefOid: merged, comments: [comment(2, "2026-11-03T02:00:00Z", passLine)], ...o.pr }),
-      { ...child, comments: o.diff ?? [comment(1, "2026-11-03T01:00:00Z", diffLine())] },
-      { issue: child.ref, head: merged },
-      {
-        commitStatus: async (_repo, sha) => (sha === passed ? { state: "success", description: "" } : null),
-        compare: async (_repo, from) =>
-          from === passed ? (o.sincePass ?? { contains: true, commits: [fromBase, baseMerge] }) : (o.sinceBase ?? { contains: true, commits: [passCommit, baseMerge] }),
-      },
+      readyPr({ comments: o.comments ?? [comment(1, "2026-11-03T01:00:00Z", passLine(P1, HEAD))], ...o.pr }),
+      issue,
+      { issue: issue.ref, head: o.head ?? null },
+      { patch: o.patch ?? P1, evidence: o.evidence === undefined ? evidence(true) : o.evidence },
     );
     return d.map((x) => x.message);
   };
 
-  test("merging the base branch into a passed PR needs no new evidence and no new review", async () => {
+  test("a PASS whose HEAD moved but whose patch matches is accepted (the patch is the input, not recomputed here)", async () => {
     expect(await problems()).toEqual([]);
+    expect(await problems({ pr: { headRefOid: H2 } })).toEqual([]);
+    expect(await problems({ pr: { headRefOid: H2 }, head: H2 })).toEqual([]);
   });
 
-  test("a commit added after PASS that is not a merge of the base branch blocks the merge", async () => {
-    const got = await problems({
-      sincePass: { contains: true, commits: [fromBase, extra, baseMerge] },
-      sinceBase: { contains: true, commits: [passCommit, extra, baseMerge] },
-    });
-    expect(got).toHaveLength(1);
-    expect(got[0]).toContain(extra.sha.slice(0, 7));
-    expect(got[0]).not.toContain(fromBase.sha.slice(0, 7));
+  test("an optimistic --head that no longer matches the PR blocks the merge", async () => {
+    expect(await problems({ pr: { headRefOid: H2 }, head: HEAD })).toEqual([`HEAD 是 ${H2}，授权的是 ${HEAD}`]);
   });
 
-  test("a branch rewritten after PASS blocks the merge", async () => {
-    expect(await problems({ sincePass: { contains: false, commits: [baseMerge] } })).toHaveLength(1);
+  test("a draft PR is rejected", async () => {
+    expect(await problems({ pr: { isDraft: true } })).toEqual(["PR 不允许是 draft"]);
   });
 
-  test("the commit that passed must carry a review diff PASS given against the same issue revision", async () => {
-    expect(await problems({ diff: [] })).toHaveLength(1);
-    expect(await problems({ diff: [comment(1, "2026-11-03T01:00:00Z", diffLine({ head: "f".repeat(40) }))] })).toHaveLength(1);
-    expect(await problems({ diff: [comment(1, "2026-11-03T01:00:00Z", diffLine({ issueRev: "2026-11-01T00:00:00Z" }))] })).toHaveLength(1);
-    const failedLater = [comment(1, "2026-11-03T01:00:00Z", diffLine()), comment(3, "2026-11-03T03:00:00Z", diffLine({ verdict: "fail" }))];
-    expect(await problems({ diff: failedLater })).toHaveLength(1);
-    expect(await problems({ diff: [...failedLater].reverse() })).toHaveLength(1);
+  test("a non-success check blocks the merge, evidence/ statuses are ignored", async () => {
+    const checks = [
+      { name: "test", state: "failure" as const },
+      { name: "evidence/acme/app#7", state: "failure" as const },
+    ];
+    expect(await problems({ pr: { checks } })).toEqual(["test：failure"]);
   });
 
-  test("a review diff posted on the PR thread counts as well as one on the issue", async () => {
-    const onPr = [comment(1, "2026-11-03T01:00:00Z", diffLine()), comment(2, "2026-11-03T02:00:00Z", passLine)];
-    expect(await problems({ diff: [], pr: { comments: onPr } })).toEqual([]);
+  test("a missing or stale PASS is rejected", async () => {
+    expect(await problems({ comments: [] })).toEqual(["没有对当前输入有效的 review 结论"]);
+    expect(await problems({ comments: [comment(1, "2026-11-03T01:00:00Z", passLine(P2, HEAD))] })).toEqual(["没有对当前输入有效的 review 结论"]);
+    expect(await problems({ comments: [comment(9, "2026-11-03T01:00:00Z", failLine())] })).toEqual(["当前有效的 review 结论不是 PASS：u9"]);
   });
 
-  test("a tree child that passed review still needs its checks green on the HEAD being merged", async () => {
-    expect(await problems({ pr: { checks: [{ name: "check", state: "failure" }] } })).toEqual(["check：failure"]);
+  test("a FAIL given after a PASS on the same patch blocks the merge", async () => {
+    const comments = [comment(1, "2026-11-03T01:00:00Z", passLine(P1, HEAD)), comment(2, "2026-11-03T02:00:00Z", failLine())];
+    expect(await problems({ comments })).toEqual(["当前有效的 review 结论不是 PASS：u2"]);
+  });
+
+  test("incomplete evidence, or evidence never computed, blocks the merge", async () => {
+    expect(await problems({ evidence: null })).toEqual(["没有计算证据完备性：先 ghc ev check"]);
+    const [first] = await problems({ evidence: evidence(false) });
+    expect(first).toStartWith("证据不齐全：");
+  });
+
+  test("a no-code issue merges on its PR body checks without an evidence package", async () => {
+    const noCode = [
+      "# t",
+      "类型：无代码变更",
+      "## 现场",
+      "> 旧说法",
+      "## 目标",
+      "x",
+      "## 范围",
+      "- docs/a.md",
+      "## 预期结果",
+      "- 结果 1：改说法",
+      "## 范围边界",
+      "x",
+    ].join("\n");
+    const nc = issueData(noCode);
+    const body = [
+      "Closes acme/app#7",
+      "",
+      "## 摘要",
+      "x",
+      "## 做了什么",
+      "- 改说法（结果 1）",
+      "## 调整思路",
+      "- 换掉旧句（结果 1）",
+      "## 增加",
+      "- 新说明（结果 1）",
+      "## 减少",
+      "- 旧说法（结果 1）",
+    ].join("\n");
+    const d = await checkPrMergeReady(
+      readyPr({ comments: [comment(1, "2026-11-03T01:00:00Z", passLine(P1, HEAD))], body }),
+      nc,
+      { issue: nc.ref, head: null },
+      { patch: P1, evidence: null },
+    );
+    expect(d.map((x) => x.message)).toEqual([]);
+  });
+
+  test("a no-code PR whose body misses a result tag is rejected", async () => {
+    const noCode = ["# t", "类型：无代码变更", "## 现场", "> 旧说法", "## 目标", "x", "## 范围", "- docs/a.md", "## 预期结果", "- 结果 1：改说法", "## 范围边界", "x"].join("\n");
+    const nc = issueData(noCode);
+    const d = await checkPrMergeReady(
+      readyPr({ comments: [comment(1, "2026-11-03T01:00:00Z", passLine(P1, HEAD))], body: "Closes acme/app#7\n\n## 摘要\nx\n## 做了什么\n- x\n## 调整思路\n- x\n## 增加\n- x\n## 减少\n- x" }),
+      nc,
+      { issue: nc.ref, head: null },
+      { patch: P1, evidence: null },
+    );
+    expect(d.map((x) => x.message)).toContain("结果 1 没有要点标注「（结果 1）」");
+  });
+});
+
+describe("ghc cli", () => {
+  const run = (...args: string[]) => {
+    const r = Bun.spawnSync([process.execPath, join(import.meta.dir, "main.ts"), ...args], { cwd: import.meta.dir });
+    return { code: r.exitCode, stdout: r.stdout.toString(), stderr: r.stderr.toString() };
+  };
+
+  test("ghc gate diff is gone: it exits 2 as a usage error", () => {
+    const r = run("gate", "diff", "acme/app#77");
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("未知的 gate 子命令 diff");
+  });
+
+  test("ghc help lists no gate diff", () => {
+    const r = run("help");
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("ghc gate header <PR>");
+    expect(r.stdout).not.toContain("gate diff");
   });
 });
 

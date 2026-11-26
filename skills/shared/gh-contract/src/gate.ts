@@ -71,8 +71,8 @@ export function gateEntries(pr: PrData, issue: IssueData, patch: PatchId): GateE
   return out;
 }
 
-/** The newest still-valid review verdict, if any; a valid PASS locks in approval for the patch. */
+/** The newest still-valid review verdict, if any. */
 export function latestValid(entries: readonly GateEntry[]): GateEntry | null {
   const valid = entries.filter((e) => e.stale.length === 0);
-  return valid.filter((e) => e.header.verdict.kind === "pass").at(-1) ?? valid.at(-1) ?? null;
+  return valid.at(-1) ?? null;
 }
