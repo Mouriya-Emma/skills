@@ -56,6 +56,25 @@ export function formsFor(face: Face): readonly Form[] {
   }
 }
 
+export type Proof = "testable" | "external";
+
+export function proofOf(face: Face): Proof {
+  switch (face) {
+    case "cli":
+    case "service":
+    case "library":
+    case "data":
+      return "testable";
+    case "gui":
+    case "iac":
+    case "agent-config":
+      return "external";
+  }
+}
+
+export const TESTABLE_FACES: readonly Face[] = FACES.filter((f) => proofOf(f) === "testable");
+export const EXTERNAL_FACES: readonly Face[] = FACES.filter((f) => proofOf(f) === "external");
+
 export const isFace = (s: string): s is Face => (FACES as readonly string[]).includes(s);
 export const isForm = (s: string): s is Form => (FORMS as readonly string[]).includes(s);
 export const isKind = (s: string): s is Kind => (KINDS as readonly string[]).includes(s);
