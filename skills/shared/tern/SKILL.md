@@ -18,7 +18,7 @@ description: 在 Tern 终端中运行测试、复现 GUI 现场、采集 ghc 截
 3. **在 Tern 中新建的 `omp` pane 必须被告知不要使用 `ask`：**
    凡在 Tern 中新建 `omp` pane 并交给它任务（`omp -p "<任务>"`、`tern send` / 场景 `type` 输入任务），任务文字必须明确写明：不要使用 `ask` 工具或任何需要人工交互的提问，当前通过 CLI 驱动、无法进行交互。否则 `omp` 会停在 `ask` 表单上，直到等待超时。唯一的例外是测试对象就是 `ask` 表单本身、并由同一场景脚本作答。
 4. **采证前先冻结代码 HEAD：**
-   走 issue / PR 交付时，必须在代码提交且 `review diff` 通过（`PASS`）之后才启动 Tern 采集正式证据（见 `delivering-issues` skill）。禁止边派 reviewer 边手搓 Tern 采证，避免 review 修代码改变 HEAD SHA 导致整轮截图作废重采。
+   走 issue / PR 交付时，实现提交之后才启动 Tern 采集正式证据，且只为外部观察面（`gui`、`iac`、`agent-config`）的结果采集（见 `gh-contract` skill「证据的规矩」与 `delivering-issues` skill）。采证前先提交实现，采证后开 PR 并按 `writing-pr` 发布；不要边改代码边手搓 Tern 采证，避免 HEAD 变化使整轮截图作废重采。
 5. **用完立即退出并清理：**
    无头测试结束时执行 `tern ctl --control "$S" quit`，并等待 `tern serve` 进程退出；本次在 daemon 中建的会话用 `tern kill session <NAME>` 关闭，单个 block 用 `tern close <BLOCK>`；用 `tern plugin link` 接入的待测插件用 `tern plugin unlink <ID>` 撤下。不遗留后台 `tern serve`、多余会话或插件链接。
 
