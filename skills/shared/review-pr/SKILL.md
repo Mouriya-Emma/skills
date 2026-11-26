@@ -71,13 +71,13 @@ PR 第一行身份与 closing 引用、目标分支落点（树内 child 合入�
 - **`FAIL` 还会被 issue 正文修订作废。** HEAD、base 分支、issue 正文修订任一改变即失效。
 - **是否仍有效由 `ghc gate list <PR>` 计算，最新的有效结论决定最终裁决。** 未通过时作者在原分支一次改完并重跑 repo 检查；证据失效的在新 HEAD 上按 `writing-pr` 重采，需要时 `ghc ev publish <PR>` 重发证据包。
 
-回到审查的路径都在这里：`FAIL` 之后作者改代码改变了 patch id，在新的 patch 上做增量复核；issue 正文修订作废 `FAIL`，按修订后的结果重新给出结论；`ghc land` 因 rebase 冲突或 patch 变化退出 1 时，冲突解决并提交后的新 patch 同样走增量复核。
+回到审查的路径都在这里：`FAIL` 之后作者改代码改变了 patch id，在新的 patch 上做增量复核；issue 正文修订作废 `FAIL`，按修订后的结果重新给出结论；`ghc land` 因 rebase 冲突或 patch 变化退出 1 时，新 patch 同样走增量复核。
 
 ## 合并
 
 通过后只经 `ghc land` 合并，不自行 `gh pr merge`，也不用 merge commit；合并动作本身不触发重审、重采，只有 patch id 变化才走增量复核：
 
-- `ghc land <PR> --issue <ref>` 把 PR rebase 到最新 base（不产生 merge commit），必要时推送新 HEAD 并等它自己的检查，复验 `ghc merge-ready` 后以 `--squash --delete-branch` 合并，读回 MERGED，默认分支的 PR 还要读回 issue 已关闭。它因 rebase 冲突或 patch 变化退出 1 时，由会话解决冲突并提交，按「结论与有效性」做增量复核后再 land。
+- `ghc land <PR> --issue <ref>` 把 PR rebase 到最新 base（不产生 merge commit），必要时推送新 HEAD 并等它自己的检查，复验 `ghc merge-ready` 后以 `--squash --delete-branch` 合并，读回 MERGED，默认分支的 PR 还要读回 issue 已关闭。它因 rebase 退出 1 时有两种情形，都按「结论与有效性」在新 patch 上做增量复核，再重新执行 `ghc land`：rebase 冲突时它已 abort、分支不变并列出冲突文件，由会话在 PR 分支上自行 rebase、解决、提交并推送；干净 rebase 改变了 patch 时它已经推送新的 HEAD，不必再提交任何东西，只欠这次增量复核。
 - tree PR 用 `ghc land <树根> --tree`，以同样方式合并：先树根之外的 repo，最后树根所在 repo，落盘后读回树内 issue 全部关闭。
 - 合并后发现的任何缺陷（包括 rebase、合入中转分支或后续组合暴露的问题）一律按 `writing-issue` skill 开新的 issue 和 PR，不回写旧 PR。
 
