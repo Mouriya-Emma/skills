@@ -35,7 +35,7 @@ git clone https://github.com/Mouriya-Emma/skills.git ~/.local/share/agent-skills
 ~/.local/share/agent-skills/repo/bin/skills-sync
 ```
 
-之后每次 `main` 有新提交，或用 `npx skills add/update` 装了第三方 skill，都重新运行 `~/.local/share/agent-skills/repo/bin/skills-sync`。它先执行 `git pull --ff-only origin main`，校验全部 rule 与清单，校验不通过时不写任何文件。
+之后每次 `main` 有新提交，或用 `npx skills add/update` 装了第三方 skill，都重新运行 `~/.local/share/agent-skills/repo/bin/skills-sync`。它先执行 `git pull --ff-only origin main`，校验全部 rule、清单与暴露给 AGY 的 skill，校验不通过时不写任何文件。
 
 参数：`--home <dir>` 指定 HOME（默认 `$HOME`），`--repo <dir>` 指定本仓库位置（默认脚本所在的仓库），`--no-pull` 跳过拉取。在开发 checkout 中自测：
 

@@ -16,6 +16,7 @@ import { dirname, join, resolve } from "node:path";
 const REPO = resolve(import.meta.dir, "..");
 const SCRIPT = join(REPO, "bin", "skills-sync");
 const AGY_RULE_LIMIT = 24000;
+const AGY_SKILL_LIMIT = 24000;
 const AGY_SECTIONS = ["common", "app", "cli", "acp"] as const;
 type AgySection = (typeof AGY_SECTIONS)[number];
 type Run = { readonly code: number; readonly out: string };
@@ -216,6 +217,34 @@ describe("skills-sync", () => {
       expect(run.out).toContain(`over the ${AGY_RULE_LIMIT}-byte limit`);
       expect(readdirSync(home)).toEqual([]);
     }
+  });
+
+  const SKILL_HEADER = "---\nname: alpha\ndescription: fixture\n---\n";
+
+  test.each([
+    { bytes: AGY_SKILL_LIMIT, code: 0 },
+    { bytes: AGY_SKILL_LIMIT + 1, code: 1 },
+  ])("a repository skill exposed to AGY with a $bytes-byte body exits $code", ({ bytes, code }) => {
+    const repo = fixtureRepo({ "skills/shared/alpha/SKILL.md": `${SKILL_HEADER}\n${"x".repeat(bytes)}\n` });
+    const home = scratchDir("home");
+    const run = sync(repo, home);
+    expect(run.code).toBe(code);
+    if (code === 1) {
+      expect(run.out).toContain(`body is ${bytes} bytes; AGY truncates skill bodies past ${AGY_SKILL_LIMIT} bytes`);
+      expect(readdirSync(home)).toEqual([]);
+    }
+  });
+
+  test("an oversized third-party skill is still linked for AGY and reported as a warning", () => {
+    const repo = fixtureRepo({ "harness/agy/manifest": "[common]\nalpha\nbig\n" });
+    const home = scratchDir("home");
+    writeTree(home, ".agents/skills/big/SKILL.md", `---\nname: big\ndescription: vendor\n---\n${"x".repeat(AGY_SKILL_LIMIT + 1)}`);
+    const run = sync(repo, home);
+    expectOk(run);
+    expect(run.out).toContain(`skills-sync: warning: ${join(home, ".agents", "skills", "big")}/SKILL.md: body is ${AGY_SKILL_LIMIT + 1} bytes`);
+    expect(readlinkSync(join(home, ".gemini", "config", "plugins", "agent-skills", "skills", "big"))).toBe(
+      join(home, ".agents", "skills", "big"),
+    );
   });
 
   test("home-anchored and relative paths of one place render to a single AGY glob", () => {

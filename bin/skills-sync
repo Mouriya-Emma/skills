@@ -45,6 +45,7 @@ type Parsed<T> = { readonly ok: true; readonly value: T } | { readonly ok: false
 const HARNESSES: readonly Harness[] = ["omp", "claude", "agy"];
 const AGY_SECTIONS: readonly AgySection[] = ["common", "app", "cli", "acp"];
 const AGY_RULE_LIMIT = 24000;
+const AGY_SKILL_LIMIT = 24000;
 const SKILL_NAME = /^[a-z0-9][a-z0-9._-]*$/;
 const USAGE = "usage: skills-sync [--home <dir>] [--repo <dir>] [--no-pull]";
 const UF_IMMUTABLE = 0x2;
@@ -55,6 +56,7 @@ const problem = (message: string): undefined => {
   problems.push(message);
   return undefined;
 };
+const warnings: string[] = [];
 
 const usageExit = (message: string): never => {
   console.error(`skills-sync: ${message}\n${USAGE}`);
@@ -326,6 +328,22 @@ const resolveSkill = (opts: Options, name: string, layers: readonly string[], ma
   );
 };
 
+const agySkillBodyBytes = (dir: string): number => {
+  const text = readFileSync(join(dir, "SKILL.md"), "utf8");
+  return Buffer.byteLength((splitFrontmatter(text)?.body ?? text).trim(), "utf8");
+};
+
+const checkAgySkillSizes = (opts: Options, exposed: readonly ReadonlyMap<string, string>[]): void => {
+  const repoSkills = `${join(opts.repo, "skills")}/`;
+  for (const source of new Set(exposed.flatMap((links) => [...links.values()]))) {
+    const bytes = agySkillBodyBytes(source);
+    if (bytes <= AGY_SKILL_LIMIT) continue;
+    const message = `${source}/SKILL.md: body is ${bytes} bytes; AGY truncates skill bodies past ${AGY_SKILL_LIMIT} bytes when the skill is invoked`;
+    if (source.startsWith(repoSkills)) problem(`${message}; move reference material into references/`);
+    else warnings.push(message);
+  }
+};
+
 const realpathOrUndefined = (path: string): string | undefined => {
   try {
     return realpathSync(path);
@@ -493,6 +511,15 @@ const main = (): void => {
     cli: { dir: join(home, ".gemini", "antigravity-cli", "skills"), layers: ["agy-cli", "agy"] },
     acp: { dir: join(home, ".gemini", "antigravity-acp", "skills"), layers: ["agy-acp", "agy"] },
   };
+  const agyLinksOf = (section: AgySection): ReadonlyMap<string, string> =>
+    desiredLinks(opts, agy.get(section) ?? [], agyDirs[section].layers, agyManifest);
+  const agyLinks: Readonly<Record<AgySection, ReadonlyMap<string, string>>> = {
+    common: agyLinksOf("common"),
+    app: agyLinksOf("app"),
+    cli: agyLinksOf("cli"),
+    acp: agyLinksOf("acp"),
+  };
+  checkAgySkillSizes(opts, Object.values(agyLinks));
   const linkPlans: readonly LinkPlan[] = [
     planLinks(
       "omp",
@@ -510,7 +537,7 @@ const main = (): void => {
       planLinks(
         `agy[${section}]`,
         agyDirs[section].dir,
-        desiredLinks(opts, agy.get(section) ?? [], agyDirs[section].layers, agyManifest),
+        agyLinks[section],
         roots,
       ),
     ),
@@ -544,6 +571,7 @@ const main = (): void => {
     );
   }
   if (claudeMd !== undefined) console.log(`claude CLAUDE.md -> ${claudeMd.target}`);
+  for (const message of warnings) console.warn(`skills-sync: warning: ${message}`);
 };
 
 main();
