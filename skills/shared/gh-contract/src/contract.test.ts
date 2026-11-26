@@ -9,7 +9,7 @@ import { clauseText } from "./fetch.ts";
 import { type GateHeader, gateEntries, headerFor, latestValid, parseHeader, renderHeader } from "./gate.ts";
 import type { Comment, IssueData, PrData, PrState } from "./github.ts";
 import { codeRepo, type IssueBody, parseIssue, type TypedOutcome } from "./issue.ts";
-import { checkWaitDecision, type LandDeps, landOrder, landPipeline, type Pipeline, rebaseOnto, type RebaseOutcome } from "./land.ts";
+import { checkWaitDecision, type LandDeps, landOrder, landPipeline, type Pipeline, readbackIssue, readbackTree, type ReadbackDeps, rebaseOnto, type RebaseOutcome } from "./land.ts";
 import { checkPrMergeReady } from "./merge.ts";
 import { err, FACES, templateOf } from "./model.ts";
 import { EMPTY_PATCH, localPatchId, patchIdOfDiff } from "./patch.ts";
@@ -989,6 +989,9 @@ describe("land pipeline", () => {
         return { ok: o.mergeOk ?? true, output: "merge failed" };
       },
       prState: async () => ({ state: o.state ?? "MERGED", headRefOid: fetched, baseRefName: "main", defaultBranch: "main" }),
+      issueState: async () => "CLOSED",
+      now: () => 0,
+      sleep: async () => {},
       log: (line) => {
         calls.lines.push(line);
       },
@@ -1099,6 +1102,73 @@ describe("land pipeline", () => {
     expect(code).toBe(1);
     expect(calls.merged).toEqual([fetched]);
     expect(calls.readbacks).toEqual(["MERGED"]);
+  });
+});
+
+describe("land readback", () => {
+  const issue: Ref = { repo, number: 7 };
+  const root: Ref = { repo, number: 11 };
+  const sub: Ref = { repo, number: 12 };
+  const keyOf = (r: Ref): string => `${r.repo.owner}/${r.repo.name}#${r.number}`;
+
+  const readbackDeps = (script: Record<string, readonly ("OPEN" | "CLOSED")[]>) => {
+    const calls = { reads: [] as string[], sleeps: [] as number[], lines: [] as string[] };
+    const queues = new Map(Object.entries(script).map(([key, states]) => [key, [...states]]));
+    let now = 0;
+    const deps: ReadbackDeps = {
+      issueState: async (r) => {
+        const key = keyOf(r);
+        calls.reads.push(key);
+        const states = queues.get(key) ?? [];
+        const state = states.length > 1 ? states.shift() : states[0];
+        if (state === undefined) throw new Error(`no scripted state for ${key}`);
+        return state;
+      },
+      now: () => now,
+      sleep: async (ms) => {
+        calls.sleeps.push(ms);
+        now += ms;
+      },
+      log: (line) => {
+        calls.lines.push(line);
+      },
+    };
+    return { calls, deps };
+  };
+
+  test("a tree readback that already reads CLOSED returns at once", async () => {
+    const { calls, deps } = readbackDeps({ [keyOf(root)]: ["CLOSED"], [keyOf(sub)]: ["CLOSED"] });
+    expect(await readbackTree([root, sub], 20, 60, deps)).toEqual({ ok: true, detail: "2 个树 issue 全部 CLOSED" });
+    expect(calls.sleeps).toEqual([]);
+    expect(calls.lines).toEqual([]);
+  });
+
+  test("a tree readback waits for the root issue to propagate CLOSED", async () => {
+    const { calls, deps } = readbackDeps({ [keyOf(root)]: ["OPEN", "CLOSED"], [keyOf(sub)]: ["CLOSED"] });
+    expect(await readbackTree([root, sub], 20, 60, deps)).toEqual({ ok: true, detail: "2 个树 issue 全部 CLOSED" });
+    expect(calls.sleeps).toEqual([20_000]);
+    expect(calls.lines).toEqual(["readback\t等待 acme/app#11 CLOSED（最多 60s）\n"]);
+  });
+
+  test("a tree readback fails with the existing message only after the bound", async () => {
+    const { calls, deps } = readbackDeps({ [keyOf(root)]: ["OPEN"], [keyOf(sub)]: ["CLOSED"] });
+    expect(await readbackTree([root, sub], 20, 60, deps)).toEqual({ ok: false, detail: "仍未 CLOSED：acme/app#11" });
+    expect(calls.sleeps).toEqual([20_000, 20_000, 20_000]);
+    expect(calls.lines).toHaveLength(1);
+  });
+
+  test("a standalone readback waits for the issue to propagate CLOSED", async () => {
+    const { calls, deps } = readbackDeps({ [keyOf(issue)]: ["OPEN", "CLOSED"] });
+    expect(await readbackIssue(issue, 20, 60, deps)).toEqual({ ok: true, detail: "MERGED; acme/app#7 CLOSED" });
+    expect(calls.sleeps).toEqual([20_000]);
+    expect(calls.lines).toEqual(["readback\t等待 acme/app#7 CLOSED（OPEN，最多 60s）\n"]);
+  });
+
+  test("a standalone readback fails with the existing message only after the bound", async () => {
+    const { calls, deps } = readbackDeps({ [keyOf(issue)]: ["OPEN"] });
+    expect(await readbackIssue(issue, 20, 60, deps)).toEqual({ ok: false, detail: "PR 已 MERGED，但 acme/app#7 是 OPEN" });
+    expect(calls.sleeps).toEqual([20_000, 20_000, 20_000]);
+    expect(calls.lines).toHaveLength(1);
   });
 });
 

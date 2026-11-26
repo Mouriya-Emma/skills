@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getIssue, getPr, type PrChecks, type PrData, prChecks, type PrState, prState, squashMerge } from "./github.ts";
+import { getIssue, getPr, type IssueData, type PrChecks, type PrData, prChecks, type PrState, prState, squashMerge } from "./github.ts";
 import {
   checkoutAt,
   checkoutBranch,
@@ -154,6 +154,9 @@ export type LandDeps = {
   readonly waitChecks: (ref: Ref, head: string, pollSeconds: number, timeoutSeconds: number) => Promise<number>;
   readonly squashMerge: (ref: Ref, head: string) => Promise<{ readonly ok: boolean; readonly output: string }>;
   readonly prState: (ref: Ref) => Promise<PrState>;
+  readonly issueState: (ref: Ref) => Promise<IssueData["state"]>;
+  readonly now: () => number;
+  readonly sleep: (ms: number) => Promise<void>;
   readonly log: (line: string) => void;
 };
 
@@ -168,8 +171,49 @@ const LAND_DEPS: LandDeps = {
   waitChecks,
   squashMerge,
   prState,
+  issueState: async (ref) => (await getIssue(ref)).state,
+  now: () => Date.now(),
+  sleep: (ms) => Bun.sleep(ms),
   log: (line) => void process.stdout.write(line),
 };
+
+/** The issue reads and clock a readback needs, so it runs without a network. */
+export type ReadbackDeps = Pick<LandDeps, "issueState" | "now" | "sleep" | "log">;
+
+export type Readback = { readonly ok: boolean; readonly detail: string };
+
+/** Poll the tree's issues until every one reads CLOSED, or `timeoutSeconds` passes. */
+export async function readbackTree(issues: readonly Ref[], pollSeconds: number, timeoutSeconds: number, deps: ReadbackDeps): Promise<Readback> {
+  const deadline = deps.now() + timeoutSeconds * 1000;
+  let reported = false;
+  for (;;) {
+    const open: string[] = [];
+    for (const r of issues) if ((await deps.issueState(r)) !== "CLOSED") open.push(refKey(r));
+    if (open.length === 0) return { ok: true, detail: `${issues.length} 个树 issue 全部 CLOSED` };
+    if (deps.now() >= deadline) return { ok: false, detail: `仍未 CLOSED：${open.join(", ")}` };
+    if (!reported) {
+      deps.log(`readback\t等待 ${open.join(", ")} CLOSED（最多 ${timeoutSeconds}s）\n`);
+      reported = true;
+    }
+    await deps.sleep(pollSeconds * 1000);
+  }
+}
+
+/** Poll the issue the landed PR closes until it reads CLOSED, or `timeoutSeconds` passes. */
+export async function readbackIssue(issue: Ref, pollSeconds: number, timeoutSeconds: number, deps: ReadbackDeps): Promise<Readback> {
+  const deadline = deps.now() + timeoutSeconds * 1000;
+  let reported = false;
+  for (;;) {
+    const state = await deps.issueState(issue);
+    if (state === "CLOSED") return { ok: true, detail: `MERGED; ${refKey(issue)} CLOSED` };
+    if (deps.now() >= deadline) return { ok: false, detail: `PR 已 MERGED，但 ${refKey(issue)} 是 ${state}` };
+    if (!reported) {
+      deps.log(`readback\t等待 ${refKey(issue)} CLOSED（${state}，最多 ${timeoutSeconds}s）\n`);
+      reported = true;
+    }
+    await deps.sleep(pollSeconds * 1000);
+  }
+}
 
 export async function landPipeline(p: Pipeline, deps: LandDeps = LAND_DEPS): Promise<number> {
   const step = (name: string, detail: string): void => deps.log(`${name}\t${detail}\n`);
@@ -231,7 +275,7 @@ export type LandOptions = {
   readonly timeoutSeconds: number;
 };
 
-export async function landPr(ref: Ref, o: LandOptions): Promise<number> {
+export async function landPr(ref: Ref, o: LandOptions, deps: LandDeps = LAND_DEPS): Promise<number> {
   const pr = await getPr(ref);
   if (pr.state !== "OPEN") {
     process.stdout.write(`pr\t${refKey(ref)} 状态是 ${pr.state}\n`);
@@ -252,10 +296,9 @@ export async function landPr(ref: Ref, o: LandOptions): Promise<number> {
     verify: (head) => prMergeReady(ref, { issue: o.issue, head }),
     readback: async (state) => {
       if (pr.baseRefName !== state.defaultBranch) return { ok: true, detail: "MERGED" };
-      const issue = await getIssue(o.issue);
-      return issue.state === "CLOSED" ? { ok: true, detail: `MERGED; ${refKey(o.issue)} CLOSED` } : { ok: false, detail: `PR 已 MERGED，但 ${refKey(o.issue)} 是 ${issue.state}` };
+      return readbackIssue(o.issue, o.pollSeconds, o.timeoutSeconds, deps);
     },
-  });
+  }, deps);
 }
 
 export type TreeLandOptions = { readonly pollSeconds: number; readonly timeoutSeconds: number };
@@ -265,7 +308,7 @@ export function landOrder<T extends { readonly repo: Repo }>(steps: readonly T[]
   return [...steps.filter((s) => !sameRepo(s.repo, root)), ...steps.filter((s) => sameRepo(s.repo, root))];
 }
 
-export async function landTree(root: Ref, o: TreeLandOptions): Promise<number> {
+export async function landTree(root: Ref, o: TreeLandOptions, deps: LandDeps = LAND_DEPS): Promise<number> {
   const status = await treeStatus(root);
   if (!reportStage("merge-ready", status.problems)) return 1;
   for (const step of landOrder(status.treePrs, root.repo)) {
@@ -288,16 +331,11 @@ export async function landTree(root: Ref, o: TreeLandOptions): Promise<number> {
       timeoutSeconds: o.timeoutSeconds,
       verify: () => treeMergeReady(root),
       readback: async () => ({ ok: true, detail: "MERGED" }),
-    });
+    }, deps);
     if (code !== 0) return code;
   }
   const issues = [status.root.ref, ...status.root.subIssues.map((s) => s.ref)];
-  const open: string[] = [];
-  for (const r of issues) if ((await getIssue(r)).state !== "CLOSED") open.push(refKey(r));
-  if (open.length > 0) {
-    stage("readback", `仍未 CLOSED：${open.join(", ")}`);
-    return 1;
-  }
-  stage("readback", `${issues.length} 个树 issue 全部 CLOSED`);
-  return 0;
+  const readback = await readbackTree(issues, o.pollSeconds, o.timeoutSeconds, deps);
+  stage("readback", readback.detail);
+  return readback.ok ? 0 : 1;
 }

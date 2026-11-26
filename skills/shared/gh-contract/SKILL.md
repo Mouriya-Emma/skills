@@ -31,8 +31,8 @@ ghc <command>
 | `ghc gate list <PR>` | 列出 review 结论各自的 patch 与是否仍有效，并给出当前 patch：结论要求 base 与当前一致；`PASS` 还按 patch 判定，HEAD 变了而 patch 不变仍有效，patch 变了即失效；`FAIL` 还要求 issue 正文未修订 |
 | `ghc merge-ready <PR> --issue <ref> [--head <sha>]` | 合并交付一个 issue 的 PR 之前：PR open 非 draft、落在该去的分支、非 `evidence/` 检查全部 success、有对当前 patch 有效的 review `PASS`、按面所需的证据齐全（无代码变更 PR 改查正文要点与范围）；`--head` 是可选的前置断言，给出时 HEAD 必须仍是它 |
 | `ghc merge-ready <树根> --tree` | 合并 tree PR 之前：剩余 child 都已合入缓冲分支、总体验收证据包齐全且对缓冲分支当前补丁有效、每个 repo 恰有一个合规的 tree PR；树根之外 repo 的 tree PR 先合并 |
-| `ghc land <PR> --issue <ref> [--checkout PATH] [--timeout SEC]` | 单个 issue 的 PR 落盘：fetch、必要时 rebase 到 base（冲突即 abort 并列出文件；干净但补丁变化则推送后退出 1，等复核）、等待新 HEAD 的检查、复验合并前提、`--squash --delete-branch` 合并并读回状态 |
-| `ghc land <树根> --tree [--timeout SEC]` | tree PR 落盘：先根 repo 之外、最后根 repo，逐个完成落盘并读回树内 issue 全部 CLOSED |
+| `ghc land <PR> --issue <ref> [--checkout PATH] [--timeout SEC]` | 单个 issue 的 PR 落盘：fetch、必要时 rebase 到 base（冲突即 abort 并列出文件；干净但补丁变化则推送后退出 1，等复核）、等待新 HEAD 的检查、复验合并前提、`--squash --delete-branch` 合并并读回状态（issue 的 CLOSED 在 `--timeout` 内等待） |
+| `ghc land <树根> --tree [--timeout SEC]` | tree PR 落盘：先根 repo 之外、最后根 repo，逐个完成落盘，最后在 `--timeout` 内等待树内 issue 全部 CLOSED |
 
 树的缓冲分支名固定为 `tree/<树根 owner>-<树根 repo>-<树根编号>`，`ghc` 据此检查树内 PR 的 base 与 tree PR 的 head。child 的 PR 在 issue 正文 `## 上下文` 的 `**Repo**` 所写的 repo 里找（缺省为 issue 所在 repo），所以 issue 与代码分处两个 repo 时这一行必须写代码所在的 repo。
 
