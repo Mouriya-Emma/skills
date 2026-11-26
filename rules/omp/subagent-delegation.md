@@ -4,6 +4,6 @@ alwaysApply: true
 
 # 子代理派工与执行记录（omp）
 
-- **档位：** 委派真实 runtime e2e（PTY、沙箱、浏览器或独立验收）给子代理时，至少用 `task:mid`（仅本轮对话获用户明确允许时可用 `task:high`），禁止交给 `task:free1` 或 `task:low`（二者仅限不启动真实运行会话的只读核查）。
+- **档位：** 委派真实 runtime e2e（PTY、沙箱、浏览器或独立验收）给子代理时，用 `task:free1` 或 `task:mid`（仅本轮对话获用户明确允许时可用 `task:high`），禁止交给 `task:free2`、`task:free3` 或 `task:low`（三者仅限不启动真实运行会话的只读核查）。
 - **执行记录：** 引用子代理的结论或回答状态追问前，先读 `history://<id>` 或 `agent://<id>`，核对实际执行的命令、改动与输出；`wait` 状态行（`stage: …`、`~NN%`）只是子代理自报的标签，不是证据。
 - **终止：** 子代理或后台任务偏离任务时，用 `proc://<id>/kill` 终止。

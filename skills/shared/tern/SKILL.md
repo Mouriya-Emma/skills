@@ -100,7 +100,7 @@ tern ctl --control "$S" expect "How should"
 ### 1. 启动无头实例并拉起待测 omp
 
 - 用 `--no-extensions -e <待测插件入口绝对路径>` 排除全局已安装副本的干扰。
-- **注意 `--no-extensions` 会同时卸掉由其他扩展提供的模型 provider**：启动命令必须显式指定当前配置下无需外部扩展即可调用的模型（如 `--model openai-codex/gpt-6.1-sol` 或 `--model futureppo-pool/ernie-5.5-flash-preview`）。
+- **注意 `--no-extensions` 会同时卸掉由其他扩展提供的模型 provider**：启动命令必须显式指定当前配置下无需外部扩展即可调用的模型（如 `--model openai-codex/gpt-6.1-sol` 或 `--model futureppo-pool/gpt-6.2-sol`）。
 - 截图不展示思考过程时加上 `--hide-thinking`；加 `TMPDIR=/tmp --no-session --no-title` 避免截图里暴露临时目录长路径或账号启动通知（或启动后先发 `/new` 清屏）。
 
 ```bash
