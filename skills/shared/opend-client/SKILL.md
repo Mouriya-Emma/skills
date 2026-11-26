@@ -75,10 +75,12 @@ Rotation: write the new `FUTU_RSA_PEM_B64` with an `admin` token (`bao kv patch 
 ## Python client — minimal working snippet
 
 ```python
+import os
+
 from futu import OpenQuoteContext, SysConfig, RET_OK
 
 SysConfig.enable_proto_encrypt(True)
-SysConfig.set_init_rsa_file('/Users/mouriya/.config/futu/futu.pem')
+SysConfig.set_init_rsa_file(os.path.expanduser('~/.config/futu/futu.pem'))
 
 ctx = OpenQuoteContext(host='trading-agent.mouriya.lan', port=11111)
 try:

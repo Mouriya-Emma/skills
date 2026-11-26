@@ -11,4 +11,4 @@ alwaysApply: true
 任何情况下编辑文档都必须核对文档所有部分的意图。
 
 例外：
-- 已合并 PR body、已发出的 issue/PR comment 和 review thread 保持不可变；错误另发记录，遵循 `github-issue-pr-routing` 与 `review-pr`，这不属于文档。
+- 已合并 PR body、已发出的 issue/PR comment 和 review thread 保持不可变；错误另发记录，遵循 `git` 规则的「GitHub issue / PR routing rule」一节与 `review-pr`，这不属于文档。
