@@ -18,4 +18,4 @@
 
 ## 本地自测
 
-改 `bin/skills-sync`、规则或清单后，先在 `/tmp` 下的假 HOME 运行 `bin/skills-sync --home <假 HOME> --repo . --no-pull`，检查生成结果，再提交。
+改 `bin/skills-sync`、规则、清单或 skill 后，先运行 `bun test ./test`，再在 `/tmp` 下的假 HOME 运行 `bin/skills-sync --home <假 HOME> --repo . --no-pull`，检查生成结果，然后提交。
