@@ -1,6 +1,6 @@
 ---
 name: tern
-description: 在 Tern 终端中运行测试、复现 GUI 现场、采集 ghc 截图证据或录制演示（无头 tern serve、真实窗口 tern --control、tern ctl --file 场景脚本、omp 原生 surface/Console/tray/jobs/form 验证、Tern Luau 插件与 CSS 热加载）时必读。
+description: Raft agent 在 tern 里给 omp 派活后需要 omp 停下时被自动唤醒（不再轮询）、或在 Tern 终端中运行测试、复现 GUI 现场、采集 ghc 截图证据或录制演示（无头 tern serve、真实窗口 tern --control、tern ctl --file 场景脚本、omp 原生 surface/Console/tray/jobs/form 验证、Tern Luau 插件与 CSS 热加载）时必读。
 ---
 
 # tern：Tern 自动化测试与 GUI 采证
@@ -21,6 +21,10 @@ description: 在 Tern 终端中运行测试、复现 GUI 现场、采集 ghc 截
    走 issue / PR 交付时，必须在代码提交且 `review diff` 通过（`PASS`）之后才启动 Tern 采集正式证据（见 `delivering-issues` skill）。禁止边派 reviewer 边手搓 Tern 采证，避免 review 修代码改变 HEAD SHA 导致整轮截图作废重采。
 5. **用完立即退出并清理：**
    无头测试结束时执行 `tern ctl --control "$S" quit`，并等待 `tern serve` 进程退出；本次在 daemon 中建的会话用 `tern kill session <NAME>` 关闭，单个 block 用 `tern close <BLOCK>`；用 `tern plugin link` 接入的待测插件用 `tern plugin unlink <ID>` 撤下。不遗留后台 `tern serve`、多余会话或插件链接。
+
+## Raft agent 等 omp 做完：用唤醒，不轮询
+
+Raft agent 在 tern 里给 omp 派活后，不要 sleep 或反复 capture 轮询。用 `raft proc` 启动 `scripts/raft-wake-on-idle.sh` 监视该窗格，然后结束本轮；omp 停下时会收到提醒被唤醒。用法与判定见 [references/raft-wake.md](references/raft-wake.md)。
 
 ## 第一步：选无头 `tern serve` 还是真实窗口 `tern --control`
 
