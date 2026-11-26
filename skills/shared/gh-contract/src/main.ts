@@ -5,10 +5,12 @@ import { evAttach, evRun } from "./evidence/capture.ts";
 import { evPlan } from "./evidence/plan.ts";
 import { evCheck, evPublish } from "./evidence/publish.ts";
 import { fetchAll } from "./fetch.ts";
-import { diffEntries, diffHeaderFor, gateEntries, headerFor } from "./gate.ts";
-import { getIssue, getPr, objectKind } from "./github.ts";
+import { gateEntries, headerFor } from "./gate.ts";
+import { getIssue, getPr } from "./github.ts";
+import { landPr, landTree } from "./land.ts";
 import { lint, printDiagnostics } from "./lint.ts";
 import { prMergeReady, treeMergeReady } from "./merge.ts";
+import { prPatchId } from "./patch.ts";
 import { checkIdentity } from "./pr.ts";
 import { EnvError, UsageError } from "./proc.ts";
 import { parseRefArg } from "./ref.ts";
@@ -22,14 +24,15 @@ const HELP = `ghc — GitHub issue/PR 内容契约
              [--artifacts DIR] [--checkout PATH]... [--timeout SEC] -- <command>
   ghc ev attach <issue> --result N[,M] --shows "<看点>" [--face F] [--kind 改|新|删|保持] [--step S] [--checkout PATH]... <image|dir>...
   ghc ev check <issue|PR>                     证据是否齐全（issue：对当前检出 HEAD；PR：对 PR HEAD）
-  ghc ev publish <PR|总体验收 issue>          发布证据包 comment，并写 evidence/<issue> 状态
-  ghc gate diff <issue> --head <sha> --result PASS|FAIL [--design REF]
-                                              review diff 结论 comment 的第一行
+  ghc ev publish <PR|总体验收 issue>          发布证据包 comment
   ghc gate header <PR> --result PASS|FAIL [--design REF]
-                                              review 证据和 PR 结论 comment 的第一行
-  ghc gate list <PR>                          列出两种 review 结论及其是否仍有效
-  ghc merge-ready <PR> --issue <ref> --head <sha>
+                                              review 证据和 PR 结论 comment 的第一行（含当前 patch）
+  ghc gate list <PR>                          列出 review 结论的 patch 与有效性，以及当前 patch
+  ghc merge-ready <PR> --issue <ref> [--head <sha>]
   ghc merge-ready <树根> --tree
+  ghc land <PR> --issue <ref> [--checkout PATH] [--timeout SEC]
+                                              rebase 到 base、等检查、squash 合并
+  ghc land <树根> --tree [--timeout SEC]       逐 repo 合并 tree PR
 
 <ref> 写 owner/repo#N 或 github.com 链接。`;
 
@@ -126,50 +129,46 @@ async function main(argv: readonly string[]): Promise<number> {
       }
     }
     case "gate": {
-      if (sub === "diff") {
-        const f = parseFlags(rest, ["--result", "--design", "--head"], []);
-        const ref = parseRefArg(f.positional[0], "issue");
-        if ((await objectKind(ref)) !== "Issue") throw new UsageError("gate diff 的对象是 issue：review diff 审的是交付它的分支，不需要 PR");
-        const result = one(f, "--result");
-        const head = one(f, "--head");
-        if (result === null || head === null) throw new UsageError("gate diff 需要 --head <被审提交的 sha> 与 --result PASS|FAIL");
-        process.stdout.write(`${diffHeaderFor(await getIssue(ref), head, result, one(f, "--design"))}\n`);
-        return 0;
-      }
+      if (sub !== "header" && sub !== "list") throw new UsageError(`未知的 gate 子命令 ${sub ?? ""}`);
       const f = parseFlags(rest, ["--result", "--design"], []);
       const pr = await getPr(parseRefArg(f.positional[0], "PR"));
       const target = checkIdentity(pr, null).target;
       if (target === null) throw new UsageError("PR 正文第一行没有 Closes，无法确定 issue");
       if (target.kind === "tree") throw new UsageError("tree PR 没有 review 结论：合并前提用 ghc merge-ready <树根> --tree");
       const issue = await getIssue(target.issue);
-      switch (sub) {
-        case "header": {
-          const result = one(f, "--result");
-          if (result === null) throw new UsageError("gate header 需要 --result");
-          process.stdout.write(`${headerFor(pr, issue, result, one(f, "--design"))}\n`);
-          return 0;
-        }
-        case "list": {
-          for (const e of gateEntries(pr, issue)) {
-            const state = e.stale.length === 0 ? "有效" : `失效（${e.stale.join("；")}）`;
-            process.stdout.write(`review\t${e.header.verdict.kind}\t${state}\t${e.comment.url}\n`);
-          }
-          for (const e of diffEntries([...issue.comments, ...pr.comments])) {
-            process.stdout.write(`review diff\t${e.header.verdict}\tHEAD ${e.header.head.slice(0, 7)}\t${e.comment.url}\n`);
-          }
-          return 0;
-        }
-        default:
-          throw new UsageError(`未知的 gate 子命令 ${sub ?? ""}`);
+      if (sub === "header") {
+        const result = one(f, "--result");
+        if (result === null) throw new UsageError("gate header 需要 --result");
+        process.stdout.write(`${headerFor(pr, issue, result, one(f, "--design"), await prPatchId(pr.ref))}\n`);
+        return 0;
       }
+      const patch = await prPatchId(pr.ref);
+      for (const e of gateEntries(pr, issue, patch)) {
+        const state = e.stale.length === 0 ? "有效" : `失效（${e.stale.join("；")}）`;
+        process.stdout.write(`review\t${e.header.verdict.kind}\tpatch ${e.header.patch.slice(0, 7)}\t${state}\t${e.comment.url}\n`);
+      }
+      process.stdout.write(`当前 patch ${patch}\n`);
+      return 0;
     }
     case "merge-ready": {
       const f = parseFlags([sub ?? "", ...rest].filter((x) => x !== ""), ["--issue", "--head"], ["--tree"]);
       const ref = parseRefArg(f.positional[0], "PR 或树根");
       if (f.bools.has("--tree")) return printDiagnostics(await treeMergeReady(ref));
-      const head = one(f, "--head");
-      if (head === null) throw new UsageError("merge-ready 需要 --head <授权的 sha>");
-      return printDiagnostics(await prMergeReady(ref, { issue: parseRefArg(one(f, "--issue") ?? undefined, "--issue"), head }));
+      return printDiagnostics(await prMergeReady(ref, { issue: parseRefArg(one(f, "--issue") ?? undefined, "--issue"), head: one(f, "--head") }));
+    }
+    case "land": {
+      const f = parseFlags([sub ?? "", ...rest].filter((x) => x !== ""), ["--issue", "--checkout", "--timeout"], ["--tree"]);
+      const raw = one(f, "--timeout");
+      const timeoutSeconds = raw === null ? 1800 : Number(raw);
+      if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) throw new UsageError("--timeout 必须是正数秒");
+      const ref = parseRefArg(f.positional[0], "PR 或树根");
+      if (f.bools.has("--tree")) return landTree(ref, { pollSeconds: 20, timeoutSeconds });
+      return landPr(ref, {
+        issue: parseRefArg(one(f, "--issue") ?? undefined, "--issue"),
+        checkout: one(f, "--checkout"),
+        pollSeconds: 20,
+        timeoutSeconds,
+      });
     }
     default:
       throw new UsageError(`未知命令 ${cmd}；ghc help 查看用法`);

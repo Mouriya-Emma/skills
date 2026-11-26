@@ -1,5 +1,6 @@
 // GitHub reads and writes through `gh`. Every response is parsed here into the shapes the checks use.
 
+import { tmpdir } from "node:os";
 import { arr, bool, field, num, type Obj, obj, objOrNull, str, strOrNull } from "./json.ts";
 import { EnvError, ghJson, graphql, run, runOk } from "./proc.ts";
 import { type Ref, type Repo, repoKey } from "./ref.ts";
@@ -69,6 +70,16 @@ function parseCheck(o: Obj): Check {
   if (t === "CheckRun") return { name: str(field(o, "name"), "check.name"), state: checkRunState(str(field(o, "status"), "check.status"), strOrNull(field(o, "conclusion"), "check.conclusion")) };
   if (t === "StatusContext") return { name: str(field(o, "context"), "status.context"), state: statusState(str(field(o, "state"), "status.state")) };
   throw new EnvError(`unexpected check type ${t}`);
+}
+
+function rollupOf(core: Obj): { readonly head: string | null; readonly checks: readonly Check[] } {
+  const last = arr(field(obj(field(core, "commits"), "commits"), "nodes"), "commits").at(-1);
+  if (last === undefined) return { head: null, checks: [] };
+  const commit = obj(field(obj(last, "c"), "commit"), "commit");
+  const head = strOrNull(field(commit, "oid"), "commit.oid");
+  const rollup = objOrNull(field(commit, "statusCheckRollup"), "rollup");
+  const nodes = rollup === null ? [] : arr(field(obj(field(rollup, "contexts"), "contexts"), "nodes"), "contexts");
+  return { head, checks: nodes.map((c) => parseCheck(obj(c, "check"))) };
 }
 
 const PAGE = "pageInfo { hasNextPage endCursor }";
@@ -183,7 +194,7 @@ export async function getPr(ref: Ref): Promise<PrData> {
         title state isDraft body url headRefOid headRefName baseRefName baseRefOid mergeable
         headRepository { name owner { login } }
         repository { defaultBranchRef { name } }
-        commits(last:1){ nodes { commit { statusCheckRollup { contexts(first:100){ nodes { __typename
+        commits(last:1){ nodes { commit { oid statusCheckRollup { contexts(first:100){ nodes { __typename
           ... on CheckRun { name status conclusion } ... on StatusContext { context state } } } } } } }
       }}}`,
       v,
@@ -220,9 +231,7 @@ export async function getPr(ref: Ref): Promise<PrData> {
   const mergeable = str(field(core, "mergeable"), "mergeable");
   if (mergeable !== "MERGEABLE" && mergeable !== "CONFLICTING" && mergeable !== "UNKNOWN") throw new EnvError(`unexpected mergeable ${mergeable}`);
   const headRepo = objOrNull(field(core, "headRepository"), "headRepository");
-  const lastCommit = arr(field(obj(field(core, "commits"), "commits"), "nodes"), "commits").at(-1);
-  const rollup = lastCommit === undefined ? null : objOrNull(field(obj(field(obj(lastCommit, "c"), "commit"), "commit"), "statusCheckRollup"), "rollup");
-  const checkNodes = rollup === null ? [] : arr(field(obj(field(rollup, "contexts"), "contexts"), "nodes"), "contexts");
+  const checks = rollupOf(core).checks;
   const defaultRef = objOrNull(field(obj(field(core, "repository"), "repository"), "defaultBranchRef"), "defaultBranchRef");
   return {
     ref,
@@ -241,7 +250,7 @@ export async function getPr(ref: Ref): Promise<PrData> {
     baseRefOid: str(field(core, "baseRefOid"), "baseRefOid"),
     mergeable,
     defaultBranch: defaultRef === null ? "" : str(field(defaultRef, "name"), "defaultBranchRef.name"),
-    checks: checkNodes.map((c) => parseCheck(obj(c, "check"))),
+    checks,
     closingIssues: closing.map((c) => refOf(obj(c, "closing"), "closing")),
     files: files.map((f) => str(field(obj(f, "file"), "path"), "file.path")),
     commits: commits.map((c) => str(field(obj(field(obj(c, "c"), "commit"), "commit"), "oid"), "oid")),
@@ -283,40 +292,61 @@ export async function branchHead(repo: Repo, branch: string): Promise<string | n
   throw new EnvError(`branch ${branch}: ${r.stderr.trim()}`);
 }
 
-export async function commitStatus(repo: Repo, sha: string, context: string): Promise<{ state: string; description: string; targetUrl: string | null } | null> {
-  const pages = arr(await ghJson(["api", `repos/${repoKey(repo)}/commits/${sha}/statuses?per_page=100`, "--paginate", "--slurp"]), "pages");
-  // Statuses come newest first; the first entry for a context is its current state.
-  for (const page of pages) {
-    for (const s of arr(page, "statuses")) {
-      const o = obj(s, "status");
-      if (field(o, "context") === context) {
-        return {
-          state: str(field(o, "state"), "status.state"),
-          description: strOrNull(field(o, "description"), "status.description") ?? "",
-          targetUrl: strOrNull(field(o, "target_url"), "status.target_url"),
-        };
-      }
-    }
-  }
-  return null;
+export async function compareDiff(repo: Repo, base: string, head: string): Promise<string> {
+  return runOk(["gh", "api", `repos/${repoKey(repo)}/compare/${base}...${head}`, "-H", "Accept: application/vnd.github.diff"]);
 }
 
-export async function setStatus(repo: Repo, sha: string, s: { state: "success" | "failure"; context: string; description: string; targetUrl: string }): Promise<void> {
-  await runOk([
-    "gh",
-    "api",
-    "-X",
-    "POST",
-    `repos/${repoKey(repo)}/statuses/${sha}`,
-    "-f",
-    `state=${s.state}`,
-    "-f",
-    `context=${s.context}`,
-    "-f",
-    `description=${s.description.slice(0, 140)}`,
-    "-f",
-    `target_url=${s.targetUrl}`,
-  ]);
+export async function repoDefaultBranch(repo: Repo): Promise<string> {
+  const res = obj(await ghJson(["api", `repos/${repoKey(repo)}`, "--jq", "{branch: .default_branch}"]), "repo");
+  return str(field(res, "branch"), "repo.default_branch");
+}
+
+export type PrChecks = { readonly head: string; readonly checks: readonly Check[] };
+
+export async function prChecks(ref: Ref): Promise<PrChecks> {
+  const core = node(
+    await graphql(
+      `query($o:String!,$n:String!,$num:Int!){repository(owner:$o,name:$n){pullRequest(number:$num){
+        commits(last:1){ nodes { commit { oid statusCheckRollup { contexts(first:100){ nodes { __typename
+          ... on CheckRun { name status conclusion } ... on StatusContext { context state } } } } } } }
+      }}}`,
+      { o: ref.repo.owner, n: ref.repo.name, num: ref.number },
+    ),
+    "pullRequest",
+  );
+  const rollup = rollupOf(core);
+  return { head: rollup.head ?? "", checks: rollup.checks };
+}
+
+export type PrState = {
+  readonly state: "OPEN" | "CLOSED" | "MERGED";
+  readonly headRefOid: string;
+  readonly baseRefName: string;
+  readonly defaultBranch: string;
+};
+
+export async function prState(ref: Ref): Promise<PrState> {
+  const data = await graphql(
+    `query($o:String!,$n:String!,$num:Int!){repository(owner:$o,name:$n){pullRequest(number:$num){state headRefOid baseRefName}
+      defaultBranchRef{name}}}`,
+    { o: ref.repo.owner, n: ref.repo.name, num: ref.number },
+  );
+  const core = node(data, "pullRequest");
+  const state = str(field(core, "state"), "state");
+  if (state !== "OPEN" && state !== "CLOSED" && state !== "MERGED") throw new EnvError(`unexpected PR state ${state}`);
+  const repoObj = obj(field(obj(data, "data"), "repository"), "repository");
+  const def = objOrNull(field(repoObj, "defaultBranchRef"), "defaultBranchRef");
+  return {
+    state,
+    headRefOid: str(field(core, "headRefOid"), "headRefOid"),
+    baseRefName: str(field(core, "baseRefName"), "baseRefName"),
+    defaultBranch: def === null ? "" : str(field(def, "name"), "defaultBranchRef.name"),
+  };
+}
+
+export async function squashMerge(ref: Ref, head: string): Promise<{ readonly ok: boolean; readonly output: string }> {
+  const r = await run(["gh", "pr", "merge", String(ref.number), "--repo", repoKey(ref.repo), "--squash", "--delete-branch", "--match-head-commit", head], { cwd: tmpdir() });
+  return { ok: r.code === 0, output: r.stderr.trim() || r.stdout.trim() };
 }
 
 /** Post a new comment on an issue or PR; returns its URL. */
@@ -332,25 +362,6 @@ export async function postComment(ref: Ref, body: string): Promise<string> {
 export async function mergeBaseRemote(repo: Repo, base: string, head: string): Promise<string> {
   const res = obj(await ghJson(["api", `repos/${repoKey(repo)}/compare/${base}...${head}`, "--jq", "{sha: .merge_base_commit.sha}"]), "compare");
   return str(field(res, "sha"), "compare.merge_base_commit.sha");
-}
-
-export type CommitInfo = { readonly sha: string; readonly parents: number };
-/** `to` seen from `from`: whether `from` is an ancestor of (or equal to) `to`, and every commit reachable from `to` alone. */
-export type Comparison = { readonly contains: boolean; readonly commits: readonly CommitInfo[] };
-
-export async function compareCommits(repo: Repo, from: string, to: string): Promise<Comparison> {
-  const pages = arr(await ghJson(["api", `repos/${repoKey(repo)}/compare/${from}...${to}?per_page=100`, "--paginate", "--slurp"]), "compare pages");
-  const first = obj(pages[0], "compare");
-  const status = str(field(first, "status"), "compare.status");
-  const total = num(field(first, "total_commits"), "compare.total_commits");
-  const commits = pages.flatMap((p) =>
-    arr(field(obj(p, "compare"), "commits"), "compare.commits").map((c) => {
-      const o = obj(c, "compare.commit");
-      return { sha: str(field(o, "sha"), "compare.commit.sha"), parents: arr(field(o, "parents"), "compare.commit.parents").length };
-    }),
-  );
-  if (commits.length !== total) throw new EnvError(`compare ${from.slice(0, 7)}...${to.slice(0, 7)}: 只取到 ${commits.length}/${total} 个提交`);
-  return { contains: status === "ahead" || status === "identical", commits };
 }
 
 /** True when `ancestor` is reachable from `descendant` (or equal), using the compare API. */

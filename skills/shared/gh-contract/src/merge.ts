@@ -1,76 +1,72 @@
 // `ghc merge-ready`: the preconditions for merging a PR that delivers one issue, or for merging an issue tree into the default branch.
 
-import { branchHead, type Comparison, commitStatus, compareCommits, getIssue, getPr, type IssueData, type MergedPr, type PrData, prsFrom } from "./github.ts";
+import { type CheckResult, describe } from "./evidence/check.ts";
+import { bufferMerge, integrationMerges, resolve, runCheck } from "./evidence/publish.ts";
+import { packComplete, parsePack } from "./evidence/render.ts";
+import { gateEntries, latestValid } from "./gate.ts";
+import { branchHead, compareDiff, getIssue, getPr, type IssueData, type MergedPr, type PrData, prsFrom, repoDefaultBranch } from "./github.ts";
 import { outcomesDigest, parseIssue } from "./issue.ts";
 import { type Diagnostic, err } from "./model.ts";
-import { checkIdentity, checkPlacement, checkTreePr } from "./pr.ts";
-import { bufferMerge, integrationMerges, statusContext } from "./evidence/publish.ts";
-import { packComplete, parsePack } from "./evidence/render.ts";
-import { diffEntries, diffReviewProblem, gateEntries, latestValid, postPassProblem } from "./gate.ts";
+import { type PatchId, patchIdOfDiff, prPatchId } from "./patch.ts";
+import { checkBody, checkIdentity, checkNoCode, checkPlacement, checkTreePr } from "./pr.ts";
 import { type Ref, type Repo, refKey, repoKey, sameRef, sameRepo, treeBranch } from "./ref.ts";
 
 export type MergeDeps = {
-  readonly commitStatus: (repo: Repo, sha: string, context: string) => Promise<{ readonly state: string; readonly description: string } | null>;
-  readonly compare: (repo: Repo, from: string, to: string) => Promise<Comparison>;
+  readonly patch: PatchId;
+  readonly evidence: CheckResult | null;
 };
 
-/**
- * A PASS stays valid when the branch moves afterwards, so what it approved is pinned here instead: the PASS commit
- * carries the evidence and a `review diff` PASS, and everything added since is a merge of the base branch.
- */
-export async function checkPrMergeReady(pr: PrData, issue: IssueData, o: { readonly issue: Ref; readonly head: string }, deps: MergeDeps): Promise<Diagnostic[]> {
+export async function checkPrMergeReady(pr: PrData, issue: IssueData, o: { readonly issue: Ref; readonly head: string | null }, deps: MergeDeps): Promise<Diagnostic[]> {
   const d: Diagnostic[] = [];
   if (pr.state !== "OPEN") d.push(err("pr", `PR 状态是 ${pr.state}`));
   if (pr.mergeable !== "MERGEABLE") d.push(err("pr", `mergeable = ${pr.mergeable}`));
-  if (pr.headRefOid !== o.head) d.push(err("pr", `HEAD 是 ${pr.headRefOid}，授权的是 ${o.head}`));
+  if (o.head !== null && pr.headRefOid !== o.head) d.push(err("pr", `HEAD 是 ${pr.headRefOid}，授权的是 ${o.head}`));
   d.push(...checkIdentity(pr, o.issue).diagnostics, ...checkPlacement(pr, issue));
-  const own = statusContext(o.issue);
-  // Evidence statuses are keyed by issue; this PR's own one is read separately below.
   for (const c of pr.checks) {
     if (c.name.startsWith("evidence/")) continue;
     if (c.state !== "success") d.push(err("checks", `${c.name}：${c.state}`));
   }
-  const review = latestValid(gateEntries(pr, issue));
-  const pass = review !== null && review.header.verdict.kind === "pass" ? review.header : null;
-  const ev =
-    (await deps.commitStatus(pr.ref.repo, pr.headRefOid, own)) ??
-    (pass !== null && pass.head !== pr.headRefOid ? await deps.commitStatus(pr.ref.repo, pass.head, own) : null);
-  if (ev === null) d.push(err(own, "HEAD 上没有本 issue 的证据状态：先 ghc ev publish"));
-  else if (ev.state !== "success") d.push(err(own, `HEAD 上证据状态 ${ev.state}：${ev.description}`));
+  const review = latestValid(gateEntries(pr, issue, deps.patch));
   if (review === null) d.push(err("review", "没有对当前输入有效的 review 结论"));
-  else if (pass === null) d.push(err("review", `当前有效的 review 结论不是 PASS：${review.comment.url}`));
-  else {
-    const diff = diffReviewProblem(diffEntries([...issue.comments, ...pr.comments]), pass);
-    if (diff !== null) d.push(err("review diff", diff));
-    if (pass.head !== pr.headRefOid) {
-      const added = postPassProblem(
-        pass.head,
-        await deps.compare(pr.ref.repo, pass.head, pr.headRefOid),
-        await deps.compare(pr.ref.repo, pr.baseRefOid, pr.headRefOid),
-      );
-      if (added !== null) d.push(err("pr", added));
-    }
-  }
+  else if (review.header.verdict.kind !== "pass") d.push(err("review", `当前有效的 review 结论不是 PASS：${review.comment.url}`));
+  const body = parseIssue(issue.body, { repo: issue.ref.repo, hasParent: issue.parent !== null }).value;
+  if (body !== null && body.kind === "no-code") d.push(...checkBody(pr, body));
+  else if (deps.evidence === null) d.push(err("evidence", "没有计算证据完备性：先 ghc ev check"));
+  else if (!deps.evidence.complete) d.push(err("evidence", `证据不齐全：\n${describe(deps.evidence)}`));
   return d;
 }
 
-export async function prMergeReady(ref: Ref, o: { readonly issue: Ref; readonly head: string }): Promise<Diagnostic[]> {
-  return checkPrMergeReady(await getPr(ref), await getIssue(o.issue), o, { commitStatus, compare: compareCommits });
+export async function prMergeReady(ref: Ref, o: { readonly issue: Ref; readonly head: string | null }): Promise<Diagnostic[]> {
+  const pr = await getPr(ref);
+  const issue = await getIssue(o.issue);
+  const patch = await prPatchId(ref);
+  const body = parseIssue(issue.body, { repo: issue.ref.repo, hasParent: issue.parent !== null }).value;
+  const extra: Diagnostic[] = [];
+  let evidence: CheckResult | null = null;
+  if (body !== null && body.kind === "no-code") extra.push(...(await checkNoCode(pr, body)).diagnostics);
+  else {
+    const checked = await runCheck(await resolve(ref));
+    evidence = checked.check;
+    extra.push(...checked.problems);
+  }
+  return [...extra, ...(await checkPrMergeReady(pr, issue, o, { patch, evidence }))];
 }
 
-/**
- * Whether the tree's buffer branches may merge into the default branches: every open child merged into the buffer,
- * the integration issue's evidence taken on the current buffer tips, and one valid tree PR per repo. Tree PRs outside
- * the root's repo merge first; the root repo's tree PR closes the root and so merges last.
- */
-export async function treeMergeReady(rootRef: Ref): Promise<Diagnostic[]> {
+export type TreeStatus = {
+  readonly root: IssueData;
+  readonly repos: readonly Repo[];
+  readonly treePrs: readonly { readonly repo: Repo; readonly pr: Ref }[];
+  readonly problems: readonly Diagnostic[];
+};
+
+export async function treeStatus(rootRef: Ref): Promise<TreeStatus> {
   const root = await getIssue(rootRef);
   const d: Diagnostic[] = [];
-  if (root.subIssues.length === 0) return [err(refKey(rootRef), "没有 sub-issue，不是树根")];
+  if (root.subIssues.length === 0) return { root, repos: [], treePrs: [], problems: [err(refKey(rootRef), "没有 sub-issue，不是树根")] };
   const buffer = treeBranch(root.ref);
   const cache = new Map<string, MergedPr[]>();
   const repos: Repo[] = [root.ref.repo];
-  let integration: { data: IssueData; heads: readonly { repo: Repo; head: string }[] | null; composed: readonly Ref[] } | null = null;
+  let integration: { data: IssueData; heads: readonly { repo: Repo; head: string; patchId: PatchId | null }[] | null; composed: readonly Ref[] } | null = null;
   const others: IssueData[] = [];
   for (const s of root.subIssues) {
     const data = await getIssue(s.ref);
@@ -102,7 +98,9 @@ export async function treeMergeReady(rootRef: Ref): Promise<Diagnostic[]> {
       if (!integration?.composed.some((r) => sameRef(r, data.ref))) d.push(err(refKey(data.ref), `还没有合入 ${buffer} 的 PR`));
     } else if (!repos.some((r) => sameRepo(r, m.ref.repo))) repos.push(m.ref.repo);
   }
-  for (const repo of repos) {
+  const treePrs: { repo: Repo; pr: Ref }[] = [];
+  const ordered = [...repos.filter((r) => !sameRepo(r, root.ref.repo)), ...repos.filter((r) => sameRepo(r, root.ref.repo))];
+  for (const repo of ordered) {
     const isRoot = sameRepo(repo, root.ref.repo);
     const tip = await branchHead(repo, buffer);
     if (tip === null) {
@@ -111,7 +109,11 @@ export async function treeMergeReady(rootRef: Ref): Promise<Diagnostic[]> {
     }
     const packHead = integration?.heads?.find((h) => sameRepo(h.repo, repo));
     if (integration?.heads != null && packHead?.head !== tip) {
-      d.push(err(repoKey(repo), `总体验收证据不在 ${buffer} 当前提交 ${tip.slice(0, 7)} 上采集（证据包为 ${packHead?.head.slice(0, 7) ?? "无"}）`));
+      const current = await patchIdOfDiff(await compareDiff(repo, await repoDefaultBranch(repo), tip));
+      if (packHead === undefined) d.push(err(repoKey(repo), `总体验收证据包里没有 ${repoKey(repo)} 的检出：在 ${buffer} 上重采再发布`));
+      else if (packHead.patchId === null || packHead.patchId !== current) {
+        d.push(err(repoKey(repo), `总体验收证据与 ${buffer} 当前补丁不等（证据包 patch ${packHead.patchId === null ? "无" : packHead.patchId.slice(0, 7)}，当前 ${current.slice(0, 7)}）：在 ${buffer} 上重采再发布`));
+      }
     }
     const open = await prsFrom(repo, buffer, "open");
     const merged = await prsFrom(repo, buffer, "merged");
@@ -133,7 +135,12 @@ export async function treeMergeReady(rootRef: Ref): Promise<Diagnostic[]> {
           if ((await prsFrom(other, buffer, "open")).length > 0) d.push(err(refKey(r), `先合并 ${repoKey(other)} 的 tree PR，根 repo 的 tree PR 关闭树根，最后合并`));
         }
       }
+      treePrs.push({ repo, pr: r });
     }
   }
-  return d;
+  return { root, repos, treePrs, problems: d };
+}
+
+export async function treeMergeReady(rootRef: Ref): Promise<Diagnostic[]> {
+  return [...(await treeStatus(rootRef)).problems];
 }
