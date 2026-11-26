@@ -218,6 +218,16 @@ describe("skills-sync", () => {
     }
   });
 
+  test("home-anchored and relative paths of one place render to a single AGY glob", () => {
+    const repo = fixtureRepo({
+      "rules/shared/scoped.md": '---\npaths:\n  - "~/.foo/**"\n  - ".foo/**"\n  - "/**/bar/**"\n---\nbody\n',
+    });
+    const home = scratchDir("home");
+    expectOk(sync(repo, home));
+    const rendered = readFileSync(join(home, ".gemini", "config", "plugins", "agent-skills", "rules", "scoped.md"), "utf8");
+    expect(rendered).toContain('globs: "**/.foo/**,**/bar/**"');
+  });
+
   test("a manifest skill that resolves nowhere fails without writing anything", () => {
     const repo = fixtureRepo({ "harness/claude/manifest": "alpha\nmissing\n" });
     const home = scratchDir("home");

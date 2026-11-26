@@ -200,11 +200,14 @@ const expandBraces = (pattern: string): readonly string[] => {
   return (match[1] ?? "").split(",").flatMap((alt) => expandBraces(head + alt + tail));
 };
 
-const agyGlobs = (paths: readonly string[]): readonly string[] =>
-  paths
-    .flatMap(expandBraces)
-    .map((p) => p.replace(/^\/+/, ""))
-    .map((p) => (p.startsWith("**/") ? p : `**/${p}`));
+const agyGlobs = (paths: readonly string[]): readonly string[] => [
+  ...new Set(
+    paths
+      .flatMap(expandBraces)
+      .map((p) => p.replace(/^(~\/|\/+)/, ""))
+      .map((p) => (p.startsWith("**/") ? p : `**/${p}`)),
+  ),
+];
 
 const renderNative = (rule: Rule, harness: Harness): string | undefined => {
   const frontmatter = rule.frontmatter

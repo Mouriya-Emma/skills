@@ -1,6 +1,13 @@
 ---
 description: 修改用户级 skill、rule 或 harness 的 skill 暴露时，回源 git 仓库修改，再用 bin/skills-sync 部署
 paths:
+  - "~/.claude/skills/**"
+  - "~/.claude/rules/agent-skills/**"
+  - "~/.agents/skills/**"
+  - "~/.local/share/agent-skills/**"
+  - "~/.local/state/agent-skills/**"
+  - "~/.gemini/config/plugins/agent-skills/**"
+  - "~/.gemini/{antigravity,antigravity-cli,antigravity-acp}/skills/**"
   - ".claude/skills/**"
   - ".claude/rules/agent-skills/**"
   - ".agents/skills/**"
