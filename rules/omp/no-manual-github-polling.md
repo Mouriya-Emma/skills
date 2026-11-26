@@ -14,6 +14,6 @@ Do not use:
 - a `for` loop that watches several runs
 
 Do this instead:
-- To wait for CI, use the `github` device with `op: run_watch`, and keep at most one waiter per session. Otherwise check the run once, do other work, and check once more later.
+- Do not wait for CI in any form; `no-gh-ci-watch` says what to do instead.
 - When the REST quota is exhausted, do not retry and do not loop on `gh api rate_limit`. Work locally until the reset time and do GitHub operations after it.
 - Each GitHub read must answer a question you need answered right now. Do not use it as a heartbeat.
