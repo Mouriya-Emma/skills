@@ -14,13 +14,13 @@ export type Kind = (typeof KINDS)[number];
 export function templateOf(kind: Kind): string {
   switch (kind) {
     case "改":
-      return "改功能（前后对比）";
+      return "改功能";
     case "新":
       return "新功能";
     case "删":
       return "删功能";
     case "保持":
-      return "保持不变（前后对比）";
+      return "保持不变";
   }
 }
 
@@ -55,6 +55,25 @@ export function formsFor(face: Face): readonly Form[] {
       return ["e2e", "集成", "最薄入口"];
   }
 }
+
+export type Proof = "testable" | "external";
+
+export function proofOf(face: Face): Proof {
+  switch (face) {
+    case "cli":
+    case "service":
+    case "library":
+    case "data":
+      return "testable";
+    case "gui":
+    case "iac":
+    case "agent-config":
+      return "external";
+  }
+}
+
+export const TESTABLE_FACES: readonly Face[] = FACES.filter((f) => proofOf(f) === "testable");
+export const EXTERNAL_FACES: readonly Face[] = FACES.filter((f) => proofOf(f) === "external");
 
 export const isFace = (s: string): s is Face => (FACES as readonly string[]).includes(s);
 export const isForm = (s: string): s is Form => (FORMS as readonly string[]).includes(s);

@@ -1,20 +1,17 @@
-// `ghc ev check` and `ghc ev publish`: compute completeness for a target, render, post, set the commit status.
+// `ghc ev check` and `ghc ev publish`: compute completeness for a target, render, post.
 
-import { gateEntries, latestValid } from "../gate.ts";
-import { commitStatus, getIssue, getPr, type IssueData, type MergedPr, mergedPrsInto, objectKind, type PrData, postComment, setStatus } from "../github.ts";
+import { getIssue, getPr, type IssueData, type MergedPr, mergedPrsInto, objectKind, type PrData, postComment } from "../github.ts";
 import { checkoutAt, defaultBranchRef } from "../git.ts";
 import { codeRepo, type IssueBody, parseIssue } from "../issue.ts";
 import { type Diagnostic, err } from "../model.ts";
 import { checkBody, checkIdentity, checkNoCode, checkPlacement, firstLine, type NoCodeReport } from "../pr.ts";
 import { UsageError } from "../proc.ts";
-import { type Ref, type Repo, refKey, repoKey, sameRef, treeBranch } from "../ref.ts";
+import { type Ref, refKey, repoKey, sameRef, treeBranch } from "../ref.ts";
 import { type CheckResult, type ChildMerge, checkEvidence, describe, type Mode } from "./check.ts";
 import { type EvidenceRecord, loadRecords, tail } from "./record.ts";
 import { type RecordDetail, renderPack, toPack } from "./render.ts";
 import { scanSecrets } from "./secrets.ts";
 
-/** Commit-status context carrying one issue's evidence verdict. Per issue, because a tree's child PRs share one head. */
-export const statusContext = (issue: Ref): string => `evidence/${refKey(issue)}`;
 const TAIL_LINES = 40;
 /** Characters of log tails one pack may carry: GitHub rejects comments over 65536 characters, and the table, commands
  * and images take the rest. Each stream of each record gets an equal share. */
@@ -89,9 +86,13 @@ async function modeFor(t: Target, body: Runnable): Promise<{ mode: Mode; problem
     return { mode: { kind: "integration", merges }, problems };
   }
   const checkout = await checkoutAt(process.cwd());
-  const parent = t.issue.parent;
-  const baseRef = parent === null ? await defaultBranchRef(checkout.path) : `origin/${treeBranch(parent)}`;
+  const baseRef = await baseRefFor(checkout.path, t.issue.parent);
   return { mode: { kind: "local", checkout, baseRef }, problems: [] };
+}
+
+/** The remote branch an issue's PR will merge into: a tree child's buffer branch, else the checkout's origin default branch. */
+export async function baseRefFor(path: string, root: Ref | null): Promise<string> {
+  return root === null ? defaultBranchRef(path) : `origin/${treeBranch(root)}`;
 }
 
 export async function runCheck(t: Target): Promise<{ check: CheckResult; problems: Diagnostic[] }> {
@@ -105,19 +106,6 @@ export async function runCheck(t: Target): Promise<{ check: CheckResult; problem
 export async function evCheck(ref: Ref): Promise<number> {
   const t = await resolve(ref);
   const { check, problems } = await runCheck(t);
-  if (!check.complete && t.kind === "pr" && problems.length === 0) {
-    const review = latestValid(gateEntries(t.pr, t.issue));
-    if (review !== null && review.header.verdict.kind === "pass") {
-      const own = statusContext(t.issue.ref);
-      const ev =
-        (await commitStatus(t.pr.ref.repo, t.pr.headRefOid, own)) ??
-        (review.header.head !== t.pr.headRefOid ? await commitStatus(t.pr.ref.repo, review.header.head, own) : null);
-      if (ev?.state === "success") {
-        process.stdout.write(`${refKey(t.issue.ref)}：review 已通过（@${review.header.head.slice(0, 7)}），无需重采证据\n`);
-        return 0;
-      }
-    }
-  }
   process.stdout.write(`${describe(check)}\n`);
   for (const p of problems) process.stdout.write(`${p.severity} ${p.where}: ${p.message}\n`);
   return check.complete && problems.length === 0 ? 0 : 1;
@@ -127,7 +115,8 @@ async function details(t: Target, check: CheckResult): Promise<RecordDetail[]> {
   const dirs = new Map((await loadRecords(t.issue.ref)).map((x) => [x.record.id, x.dir]));
   const linked = new Map<string, { record: EvidenceRecord; dir: string }>();
   for (const r of check.outcomes) {
-    for (const s of r.steps) {
+    if (r.proof.kind !== "records") continue;
+    for (const s of r.proof.steps) {
       if (s.status.kind !== "linked") continue;
       const dir = dirs.get(s.status.record.id);
       if (dir !== undefined) linked.set(s.status.record.id, { record: s.status.record, dir });
@@ -172,16 +161,14 @@ export async function evPublish(ref: Ref): Promise<number> {
     const d = [...identity.diagnostics, ...checkPlacement(t.pr, t.issue), ...checkBody(t.pr, t.body), ...nc.diagnostics];
     const ok = d.every((x) => x.severity !== "error");
     const url = await postComment(t.pr.ref, renderNoCode(t.issue, t.pr, nc.report, d, generatedAt));
-    await setStatus(t.pr.ref.repo, t.pr.headRefOid, {
-      state: ok ? "success" : "failure",
-      context: statusContext(t.issue.ref),
-      description: ok ? `无代码变更检查通过 @${t.pr.headRefOid.slice(0, 7)}` : `无代码变更检查未通过：${d.filter((x) => x.severity === "error").length} 项`,
-      targetUrl: url,
-    });
     process.stdout.write(`${url}\n`);
     return ok ? 0 : 1;
   }
   const { check, problems } = await runCheck(t);
+  if (t.kind === "pr" && check.complete && problems.length === 0 && check.outcomes.every((x) => x.proof.kind === "test")) {
+    process.stdout.write(`${refKey(t.issue.ref)}：全部结果由 PR 的 test 检查证明，无需证据包\n`);
+    return 0;
+  }
   const det = await details(t, check);
   const hits = det.flatMap((x) => [
     ...(x.record.capture.kind === "run" ? scanSecrets(`${x.record.id} command`, x.record.capture.command) : []),
@@ -196,19 +183,7 @@ export async function evPublish(ref: Ref): Promise<number> {
   const pack = toPack(check, generatedAt);
   const target = t.kind === "pr" ? t.pr.ref : t.issue.ref;
   const url = await postComment(target, renderPack(pack, det, check));
-  const complete = check.complete && problems.length === 0;
-  const missing = [...check.outcomes.filter((x) => x.overall !== "linked").map((x) => `结果 ${x.outcome.id}`), ...check.unseenFaces.map((f) => `面 ${f}`)];
-  const statusTargets: { repo: Repo; sha: string }[] =
-    t.kind === "pr" ? [{ repo: t.pr.ref.repo, sha: t.pr.headRefOid }] : pack.heads.map((h) => ({ repo: h.repo, sha: h.head }));
-  for (const s of statusTargets) {
-    await setStatus(s.repo, s.sha, {
-      state: complete ? "success" : "failure",
-      context: statusContext(t.issue.ref),
-      description: complete ? `${pack.linked}/${pack.total} 条结果齐全 @${s.sha.slice(0, 7)}` : `缺 ${missing.join("、")}${problems.length > 0 ? "；组合对象未全部合并" : ""}`,
-      targetUrl: url,
-    });
-  }
   process.stdout.write(`${url}\n`);
   for (const p of problems) process.stderr.write(`ghc: ${p.where}: ${p.message}\n`);
-  return complete ? 0 : 1;
+  return check.complete && problems.length === 0 ? 0 : 1;
 }

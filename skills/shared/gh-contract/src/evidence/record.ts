@@ -3,8 +3,9 @@
 import { mkdir, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { arr, bool, field, num, type Obj, obj, str } from "../json.ts";
+import { arr, bool, field, num, type Obj, obj, str, strOrNull } from "../json.ts";
 import { type Face, isFace, isKind, type Kind } from "../model.ts";
+import { isPatchId, type PatchId } from "../patch.ts";
 import { type Ref, refKey } from "../ref.ts";
 import { isStep, type Step } from "../requirements.ts";
 
@@ -31,6 +32,8 @@ export type CheckoutState = {
   readonly repo: string;
   readonly path: string;
   readonly head: string;
+  /** The patch of `head` against the issue's target base at capture time; null when the base could not be resolved. */
+  readonly patchId: PatchId | null;
   readonly cleanBefore: boolean;
   readonly cleanAfter: boolean;
 };
@@ -123,10 +126,13 @@ export function parseRecord(v: unknown): EvidenceRecord {
     endedAt: str(field(o, "endedAt"), "record.endedAt"),
     checkouts: arr(field(o, "checkouts"), "record.checkouts").map((c) => {
       const co = obj(c, "checkout");
+      const patchId = strOrNull(field(co, "patchId"), "checkout.patchId");
+      if (patchId !== null && !isPatchId(patchId)) throw new Error(`checkout.patchId: not a patch id ${patchId}`);
       return {
         repo: str(field(co, "repo"), "checkout.repo"),
         path: str(field(co, "path"), "checkout.path"),
         head: str(field(co, "head"), "checkout.head"),
+        patchId,
         cleanBefore: bool(field(co, "cleanBefore"), "checkout.cleanBefore"),
         cleanAfter: bool(field(co, "cleanAfter"), "checkout.cleanAfter"),
       };
@@ -154,10 +160,11 @@ export async function loadRecords(issue: Ref): Promise<{ record: EvidenceRecord;
   const out: { record: EvidenceRecord; dir: string }[] = [];
   for (const name of names.sort()) {
     const file = Bun.file(join(root, name, "record.json"));
-    if (!(await file.exists())) continue; // a run still in progress or aborted before saving
+    if (!(await file.exists())) continue; // a run still in progress or aborted without saving
     const json: unknown = await file.json();
-    // Records taken against acceptance rows predate result-keyed evidence and prove nothing about a result.
-    if (typeof json === "object" && json !== null && "rows" in json) continue;
+    // Records taken against acceptance rows predate result-keyed evidence and prove nothing about a result; a `before`
+    // record belongs to the removed base double-checkout and proves nothing about the result's new behaviour.
+    if (typeof json === "object" && json !== null && ("rows" in json || ("step" in json && json.step === "before"))) continue;
     const record = parseRecord(json);
     if (record.issue === refKey(issue)) out.push({ record, dir: join(root, name) });
   }

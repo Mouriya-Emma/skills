@@ -3,7 +3,7 @@
 
 import { getIssue } from "../github.ts";
 import { parseIssue } from "../issue.ts";
-import { templateOf } from "../model.ts";
+import { proofOf, templateOf } from "../model.ts";
 import { UsageError } from "../proc.ts";
 import { type Ref, refKey } from "../ref.ts";
 import { requirementFor } from "../requirements.ts";
@@ -23,12 +23,16 @@ export async function evPlan(ref: Ref): Promise<void> {
   for (const o of body.outcomes) {
     process.stdout.write(`\n结果 ${o.id} [${o.kind}] · ${templateOf(o.kind)}\n  ${o.text}\n`);
     for (const face of body.scope.faces) {
-      const req = requirementFor(face, o.kind);
-      const steps = integration ? req.steps.filter((s) => s.anchor === "head") : req.steps;
+      const req = requirementFor(face);
       process.stdout.write(`  经 ${face} 观察${req.ordered ? "（步骤按顺序）" : ""}：\n`);
-      for (const s of steps) {
-        const where = s.anchor === "base" ? "在 base 提交的干净检出上" : integration ? "在包含全部 child 合并提交的检出上" : "在当前 HEAD 的干净检出上";
-        const flags = `--result ${o.id}${faceFlag ? ` --face ${face}` : ""}${steps.length > 1 ? ` --step ${s.step}` : ""} --shows "<reviewer 能看出什么>"`;
+      if (!integration && proofOf(face) === "testable") {
+        process.stdout.write(
+          `    PR 上名为 test 的检查通过时，这条结果由随 PR 提交、在「实现说明」里写明文件与用例名的测试证明；下列步骤只在仓库没有 test 检查时采集。\n`,
+        );
+      }
+      for (const s of req.steps) {
+        const where = integration ? "在包含全部 child 合并提交的检出上" : "在当前 HEAD 的干净检出上";
+        const flags = `--result ${o.id}${faceFlag ? ` --face ${face}` : ""}${req.steps.length > 1 ? ` --step ${s.step}` : ""} --shows "<reviewer 能看出什么>"`;
         const capture = s.needsImage
           ? `ghc ev attach ${refKey(ref)} ${flags} <真实会话里截的图>`
           : `ghc ev run ${refKey(ref)} ${flags} -- <经真实入口的观察>`;
