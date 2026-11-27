@@ -7,7 +7,7 @@ description: Raft agent 在 tern 里给 omp 派活后需要 omp 停下时被自�
 
 本机 Tern 可执行文件为 `/Users/mouriya/.local/bin/tern`（指向 `/Applications/Tern.app/Contents/MacOS/tern`）。凡涉及 Tern 界面、omp 在 Tern 中的原生渲染（TSP surface）、Tern 插件或样式的复现、验证、证据截图与录屏，均按本 skill 执行。在 Windows 测试机 `g16pro` 上运行 Tern 时，沙箱与启动入口同时遵守 omp 专属的 `windows` skill（`omptest tern` / `omptest run <name> tern.com`）。
 
-## 硬约束：配置、生命周期与 omp pane
+## 硬约束：配置与生命周期
 
 1. **使用本机普通配置，禁止用 `/tmp` 隔离 config：**
    一律在本机普通配置下运行 `tern`：配置目录是 `~/Library/Application Support/Tern`（`settings.json`、`plugins/`、内置 `omp/`），session daemon 的 socket 是同目录下的 `daemon.sock`。禁止设置 `TERN_CONFIG_DIR` 或 `TERN_DAEMON_SOCKET` 指向 `/tmp` 等临时目录：新的配置目录会让 Tern 重新下载内置 `omp`，并拉起多余的 `tern tray` 和留下孤儿 daemon。
@@ -15,11 +15,9 @@ description: Raft agent 在 tern 里给 omp 派活后需要 omp 停下时被自�
    - 控制端点写成本次专用的路径（`--control /tmp/tern-<run>/ctl.sock`），不要用 `serve` 与 `ctl` 的默认 `/tmp/tern.sock`，避免与其他测试串线。
 2. **只操作自己创建的对象：**
    普通配置下 `tern ls`、`tern inspect`、`tern send`、`tern capture`、`tern wait` 连的就是用户正在使用的 session daemon，能看到用户全部会话。只对本次用 `tern new session|tab` / `tern split` 建出的 session、tab、block 执行 `send`、`close`、`kill`，并记录 `--json` 返回的精确 ID；用户原有的 pane 一律不碰。`tern new session` 建出的会话在用户窗口里是 `shown: false`，不会切走用户当前显示的会话。
-3. **在 Tern 中新建的 `omp` pane 必须被告知不要使用 `ask`：**
-   凡在 Tern 中新建 `omp` pane 并交给它任务（`omp -p "<任务>"`、`tern send` / 场景 `type` 输入任务），任务文字必须明确写明：不要使用 `ask` 工具或任何需要人工交互的提问，当前通过 CLI 驱动、无法进行交互。否则 `omp` 会停在 `ask` 表单上，直到等待超时。唯一的例外是测试对象就是 `ask` 表单本身、并由同一场景脚本作答。
-4. **采证前先冻结代码 HEAD：**
+3. **采证前先冻结代码 HEAD：**
    走 issue / PR 交付时，必须在代码提交且 `review diff` 通过（`PASS`）之后才启动 Tern 采集正式证据（见 `delivering-issues` skill）。禁止边派 reviewer 边手搓 Tern 采证，避免 review 修代码改变 HEAD SHA 导致整轮截图作废重采。
-5. **用完立即退出并清理：**
+4. **用完立即退出并清理：**
    无头测试结束时执行 `tern ctl --control "$S" quit`，并等待 `tern serve` 进程退出；本次在 daemon 中建的会话用 `tern kill session <NAME>` 关闭，单个 block 用 `tern close <BLOCK>`；用 `tern plugin link` 接入的待测插件用 `tern plugin unlink <ID>` 撤下。不遗留后台 `tern serve`、多余会话或插件链接。
 
 ## Raft agent 等 omp 做完：用唤醒，不轮询

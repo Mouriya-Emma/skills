@@ -59,7 +59,6 @@ Tern 是终端与浏览器复用器，**没有** Orca 的内置 mailbox、`workt
 
 - 多行或复杂任务说明先用文件工具写入 `/tmp/tern-orch-<id>.md`（或目标 CLI 支持的 prompt 文件），**严禁使用 `<<` heredoc 或 `<<<` here-string**。
 - 每个 spec 必须自包含：目标、允许/禁止修改的范围、约束条件、以及完成后需要输出或落盘的证据路径。
-- 目标 harness 是 `omp` 时，spec 开头必须明确告知它：不要使用 `ask` 工具或任何需要人工交互的提问，当前通过 CLI 驱动、无法进行交互。`omp` 在 Tern pane 里调用 `ask` 会停在表单上等待人工作答，编排方只能等到超时。
 
 ### 2. 启动跨 Harness Worker
 
@@ -147,4 +146,3 @@ tern kill session "codex-review"
 3. **禁止漏掉 `--surfaces`**：对运行在 Tern TSP surface 上的程序（如 `omp`）执行 `tern capture` 时，不加 `--surfaces` 会漏掉主界面文本。
 4. **禁止越界接管用户窗格**：不要对用户正在交互的原有窗格执行 `send`、`run`、`focus` 或 `close`；只操作本次编排新建的 `session` / `tab` / `block`。
 5. **禁止在 harness 内部滥用**：能用当前 harness 原生 subagent / swarm 解决的任务，不要拉起 `tern` 编排。
-6. **禁止向 `omp` pane 派发未声明禁用 `ask` 的任务**：在 Tern 中新建 `omp` pane（`tern new session|tab`、`tern split` 启动 `omp`，或向已运行的 `omp` `send` 任务）时，任务说明必须明确告知它不要使用 `ask`，因为当前通过 CLI 驱动、无法交互。
