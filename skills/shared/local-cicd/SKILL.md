@@ -1,12 +1,12 @@
 ---
 name: local-cicd
-description: Self-hosted CI on GARM (resident LXD on VM 181, edge Incus overflow, arm64 Incus on Oracle A1) and the private registry registry.237575.xyz. Use to onboard a repo to GARM pools, write mesh-aware workflows, build and push images, publish or consume release artifacts, handle concurrency on shared delivery state, and pick evidence per delivery shape. Deploying to Komodo itself is in the km skill.
+description: Self-hosted CI on GARM (resident LXD on VM 181, edge Incus overflow, arm64 Incus on Oracle A1) and the private registry registry.237575.xyz. Use to onboard a repo to GARM pools, write mesh-aware workflows, build and push images, publish or consume release artifacts, handle concurrency on shared delivery state, and pick evidence per delivery shape. Also own the single required `test` PR gate (`mouriya-devops/ci/actions/mise-check@main`) and the fast/slow CI split. Deploying to Komodo itself is in the km skill.
 disable-model-invocation: true
 ---
 
 # local-cicd: self-hosted CI/CD 体系
 
-`runner-canary` 是当前 **image-service 样板**，不是所有 GARM 项目的唯一形态。先按项目类型判断，再套对应链路；不要把 registry image、healthz、Komodo DeployStack 强加给 plugin / sync / E2E-only repo。
+`runner-canary` 是当前 **image-service 样板**，不是所有 GARM 项目的唯一形态。先按项目类型判断，再套对应链路；不要把 registry image、healthz、Komodo DeployStack 强加给 plugin / sync / E2E-only repo。它同时是 PR 门禁与合入后重检的完整参考实现（`pr.yml`、`ci.yml`、`scripts/ci.ts`、`test/ci-policy.test.ts`）。
 
 ## Authoritative sources first
 
@@ -33,6 +33,16 @@ Static lists in this skill are examples/patterns. Treat live GARM + current repo
 | Private registry | `registry.237575.xyz` on VM 182 `vctcn-registry`. The registry + docker_auth Stack (compose, docker_auth config, `ext_auth.sh`) is declared in `vctcn-edge`; VM 182, Keycloak realm `registry` with client and `sa-registry`, the token-signing keypair and the consumer repos' Actions secret are `pve-vctcn/apps/registry`. |
 | Komodo deploy | Workload repo declarations, webhook and value workflow, image release triggers, app onboarding: `km` skill. Komodo installation, registry pull account and Core listener ingress: the IaC repo that installs Komodo (`iac-projects`). |
 | vctcn hosts and edge | `pve-vctcn`: VMs 180–182, Keycloak, GARM, host NAT/DNAT and Cloudflare DNS. `vctcn-edge`: the edge apps on those hosts and CT 171, including NPM, whose proxy hosts are declared in its compose bootstrap. |
+
+## PR 门禁与合入后重检（所有仓库）
+
+每个仓库的 PR 只认一个必过检查 `test`，由 `.github/workflows/pr.yml` 产出；重型验证在合入后的 `.github/workflows/ci.yml` 按变更重新规划。快慢分离与 artifact 类型无关，三类仓库（纯代码/插件、镜像服务、IaC/Komodo workload）都照它接入；三类差异、模板、策略自测和合并开关命令见 [references/pr-gate-and-ci-split.md](references/pr-gate-and-ci-split.md)。
+
+- `pr.yml`：`pull_request`（`main` 与 `'tree/**'`）加 `merge_group`；job `test` 在公网托管 runner（默认 `ubuntu-24.04`，macOS 专属仓 `macos-latest`）以 `uses: mouriya-devops/ci/actions/mise-check@main` 带 `task: check:pr` 运行；`checkout` 写 `persist-credentials: false`。禁止 workflow 级 `paths` / `paths-ignore`（纯文档 PR 也产出 `test`）和 `continue-on-error: true`。
+- `ci.yml`：只有 `push` 到 `main` 与 `'tree/**'`、每日 `schedule`、`workflow_dispatch`，禁止无分支过滤的 `on: push`。`plan` → 各套件 job → `gate`：`plan` 比较 `before..HEAD` 变更文件，纯文档跳过重型套件，未知或共享配置路径回退全量；`gate` 在被选套件任一非 `success` 时失败。
+- `mise.toml`：`check:pr` 是托管 runner 上的快门禁（测试、构建、策略自测）；`check` 是完整重检（本地与合入后，含容器冒烟等重型套件）。工具链由 `mise` 提供，workflow 不钉版本。
+- 运行位置：PR 门禁只上公网托管 runner；mesh/registry/GARM 套件放 `ci.yml`，需要 GARM 时用 `mouriya-devops/ci/.github/workflows/check.yml@main` 并传 `task`（保留托管 `parse` 闸门）。
+- 证明方式：PR 有成功 `test` 时，可测试面（`library`、`cli`、`service`、`data`）由随 PR 入库的真实行为/集成测试证明，不发 `ghc ev` 包；外部面（`gui`、`iac`、`agent-config`）始终要 `ghc ev`；仓库没有 `test` 检查时全部结果都要 `ghc ev`。
 
 ## Decide the CI/CD shape by artifact type
 
@@ -116,12 +126,13 @@ Use when the repo is not a deployed service, e.g. PR bridge E2E or runner capabi
 Rules:
 
 - GARM may be required for mesh reachability or parity with production runners.
+- These E2E and smoke suites run in the post-merge `ci.yml`, never in the `pr.yml` gate.
 - No registry or Komodo deploy evidence is required unless the workflow actually publishes/deploys something.
 - Evidence is the workflow's target behavior (notification sent, bridge template executed, toolchain check passed, canary HTTP/DNS probe passed).
 
 ## When GARM/local-cicd is mandatory
 
-Use GARM or a GARM job for any workflow that must:
+Use GARM or a GARM job for any post-merge or release workflow that must:
 
 - reach `*.mouriya.lan`, NetBird peers, homelab services, Komodo, OpenBao, Step-CA, vctcn registry/NPM/edge, or other private endpoints;
 - publish to `registry.237575.xyz` from inside the mesh/private path;
@@ -129,7 +140,7 @@ Use GARM or a GARM job for any workflow that must:
 - call Komodo APIs without public ingress;
 - prove a release/deploy path that is consumed by homelab/vctcn infra.
 
-A repo may mix runner classes by responsibility. Public/cheap tests can run on cloud runners; mesh/publish/deploy/integration jobs should use GARM.
+A repo may mix runner classes by responsibility. The PR gate never runs on GARM: `pr.yml` is a hosted `test` check. Mesh/publish/deploy/integration suites belong in the post-merge `ci.yml`, where they may use GARM.
 
 ## GARM onboarding / pool shape
 

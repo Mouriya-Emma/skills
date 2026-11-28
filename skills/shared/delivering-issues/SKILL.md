@@ -34,11 +34,14 @@ issue 写什么、PR 交什么、证据与合并前提怎样判定，在 `writin
 
 ## 开工前：证据计划
 
-写第一行代码之前，对每个要交付的 issue（树还包括总体验收 issue）定好证据从哪里采集：
+写第一行代码之前，对每个要交付的 issue（树还包括总体验收 issue）按证明分层定好每条结果由什么证明：
 
 1. 跑 `ghc ev plan <issue>`：列出每条预期结果的类型、对应的证据模板，以及按面要交的步骤。
-2. 逐条结果定下：从哪个真实入口观察；在哪个环境；需要哪些前置（部署目标、依赖服务、数据、凭据、登录态）；由哪个切片交出这个入口。
-3. `[改]` 与 `[保持]` 结果的改动前观察现在就在 base 提交的干净检出上采。它要重现 issue 现场里的那一幕；重现不了，说明现场或结果与事实不符，按「契约问题」处理。
+2. 按面分层（`gh-contract` skill「证据的规矩」）：
+   - 可测试面（`library`、`cli`、`service`、`data`）：由随 PR 提交、经真实入口或真实本地依赖运行、去掉本次改动即失败的测试证明；该 repo 的 PR 上必须有成功的 `test` 检查，PR 的 `## 实现说明` 写明测试文件与用例名。定下每条结果由哪个测试用例驱动哪个入口。issue 的影响范围只含可测试面时，不采集 `ghc ev`。
+   - 外部观察面（`gui`、`iac`、`agent-config`）：由 `ghc ev` 记录证明，每个面至少有一条结果经它观察。逐条定下从哪个真实入口观察、在哪个环境、需要哪些前置（部署目标、依赖服务、数据、凭据、登录态），由哪个切片交出这个入口。
+   - repo 的 PR 上还没有 `test` 检查时回退：全部结果都要有当前补丁的 `ghc ev` 记录。
+3. 不存在改动前的第二次检出：改动前的现场由 issue 的 `## 现场` 承载；`[保持]` 由 repo 既有测试与 diff 的不变边界守住，不为它采改动前的观察。
 4. 某条结果在本 issue 这一层没有入口，或环境不可达，现在就按「契约问题」处理，不留到实现之后。
 
 证据计划约束切分：每条结果的入口都要有切片负责交出，采集所需的环境在实现期间备好。具体用什么输入、读哪个数在实现完成后定（`writing-pr` skill「证据」）。计划记在会话的本地计划里，不写进 issue。
@@ -49,57 +52,59 @@ issue 写什么、PR 交什么、证据与合并前提怎样判定，在 `writin
 - **接口先定。** 切片之间的接口（类型、函数签名、错误分类、数据形状）在派出前定下，写进每个相关切片的任务。issue 的决策表和契约引用已经钉住的照用；issue 留给实现者的单元内接口，由会话现在定。
 - **同时派出。** 切片各自在隔离的工作区里做。别的切片都要用的那一小段（共享类型与接口的落地）先由会话写完提交，其余切片从这个提交出发同时派出。
 - **任务自足。** 子代理看不到对话和本 skill。任务写明：所属 issue 的链接、本切片的目标、它拥有的文件清单、要遵守的接口和契约条款所在位置、不做的事。
-- **切片不做的事。** 不跑 repo 的构建、lint 和测试套件，不采集证据，不推送，不开 PR，不写 GitHub，不改清单之外的文件。接口或契约不够用时报告会话，不在本地扩展或另立副本。
+- **实现切片不做的事。** 不跑 repo 的构建、lint 和测试套件，不采集证据，不推送，不开 PR，不写 GitHub，不改清单之外的文件。接口或契约不够用时报告会话，不在本地扩展或另立副本。
 - **会话整合。** 全部切片回到 issue 的分支后，由会话整合、提交。
 
 ## 多个 issue：按依赖并行
 
 - **就绪。** 一个 issue 的 `Depends on` 所指的 issue 都已合入它的 base（树内是缓冲分支，独立 issue 是默认分支），或它没有依赖。
-- **就绪的同时做。** 所有就绪的 issue 一起进行，各有自己的分支（从 base 当前提交建）、检出和 PR，它们的切片一起派出。一个 issue 合入后，被它解除阻塞的 issue 立即开工。
+- **就绪的按批进行。** 所有就绪的 issue 进入排期，按下一项的文件重叠规则排成批次，同一批的一起进行，各有自己的分支（从 base 当前提交建）、检出和 PR，它们的切片一起派出。一个 issue 合入后，被它解除阻塞的 issue 按同一规则排入批次。
 - **依据。** 树按树根的依赖图和各 child 的「依赖关系」；用户给的平铺列表按各 issue 的「依赖关系」，没有写依赖的互相独立。
-- **文件重叠不是依赖。** 同时进行的 issue 可以改同一个文件，各自在自己的分支上做到 `review 证据和 PR` 通过。与 base 有冲突不妨碍送审：通过之前不为解冲突动分支，通过之后按「合并纪律」用 merge 解决。一方要用到另一方交付的行为或接口才是依赖：把它补进 issue，树内同时补树根的依赖图，先做被依赖的一方。
+- **文件重叠先串行。** 开工前从每个就绪 issue 的 `Anchors` 与预测会改的文件列出文件集，含共享注册表、入口路由、`README.md`、`CLAUDE.md`、`mise.toml`、`stacks.toml` 和锁文件。文件集相交的 issue 排进先后批次，或先把共享的类型与接口底座提交进 base；只有文件集不相交的 issue 同时进行。
+- **相交不是依赖。** 文件集相交只决定先后，不改变依赖关系：一方要用到另一方交付的行为或接口才是依赖，把它补进 issue，树内同时补树根的依赖图，先做被依赖的一方。
 
 ## 测试与审查纪律：每样只跑一次
 
 | 步骤 | 何时 | 在哪个提交上 |
 |---|---|---|
-| repo 的构建、lint、测试套件 | 一个 issue 的切片全部整合之后 | issue 分支 |
-| review diff | 上一项通过并提交之后（此时不采集证据） | issue 分支当前 HEAD |
-| issue 每条结果的证据 | review diff 通过之后 | 通过 review diff 的 HEAD，强度按 issue 的「测试形态」，不升级 |
-| review 证据和 PR | `ghc lint <PR>` 与 `ghc ev publish <PR>` 通过之后 | PR 当前 HEAD |
+| repo 的构建、lint、测试套件（含随 PR 提交的测试） | 一个 issue 的切片全部整合之后 | issue 分支 |
+| 证据采集（仅外部观察面；或 repo 没有 `test` 检查时全部结果） | 上一项通过并提交之后；`ghc ev check` 退出码 0 后开 PR | PR 当前补丁 |
+| review（单轮） | PR 已开出，`ghc lint <PR>` 与 `ghc ev publish`（有记录时）通过之后 | PR 当前补丁 |
+| `ghc land <PR>` | review `PASS` 对当前补丁有效之后 | PR |
 | 总体验收 issue 每条功能结果的 e2e 证据（树里唯一的 e2e） | 树的 child 全部合入缓冲分支之后 | 缓冲分支当前提交 |
 
-- 构建、测试与证据采集由会话执行；证据的逐条采集可以作为一个切片派出，采集计划仍是会话开工前定下的那一份。两类 review 均由不继承本会话上下文的只读 reviewer 按 `review-pr` skill 执行。
-- 切片不测，review 不重跑证据，合并后不重跑。
-- 代码问题在 `review diff` 阶段一次审出、一次改完，定稿之后才采证据。在 `review 证据和 PR` 通过之前，HEAD 一变，`review diff` 的结论对新 HEAD 失效；已采的证据只在自记录以来改动不只是 `.md` 文件时才失效；一旦 `review 证据和 PR` 通过，PR 直接合入中转分支，必定不再 review，也不要再重新采集证据。
+- 构建、测试与证据采集由会话执行；证据的逐条采集可以作为一个切片派出，采集计划仍是会话开工前定下的那一份。review 由不继承本会话上下文的只读 reviewer 按 `review-pr` skill 执行，一个 PR 只有一轮。
+- 实现切片不测，review 不重跑证据，合并后不重跑。
+- 代码问题在这一轮 review 一次审出、一次改完。review 的结论与它所审的补丁绑定：补丁不变时 `PASS` 一直有效，哪怕为追平 base 的 rebase 让 HEAD 变了；改动本 PR 的 hunk（解冲突时的修改、追加提交）使补丁变化，`PASS` 失效，在新补丁上增量复核。证据同样按补丁判定：补丁变化或自记录以来又改了代码文件时，只对过期项在新补丁上重采。
 - 实现途中要确认某段行为，跑针对这个疑点的一次探针，不跑整套。
 
 ## 合并纪律
 
 - **一个 issue，一个分支，一个 PR。** PR 的 diff 只含本 issue 的改动；base 是树的缓冲分支（树内 child）或默认分支（独立 issue）。只有会话把切片整合进 issue 分支。
-- **实现方不审自己的代码与 PR。** Review 分为两种，均由不继承本会话上下文的只读 reviewer 按 `review-pr` skill 执行，review 期间不向该分支推送：
-  1. **review diff**：切片整合、repo 检查通过并提交后立即进行，**此时不需要采集证据**。reviewer 把结论 comment 发到 issue（PR 已开出时发到 PR thread），第一行是 `ghc gate diff <issue> --head <被审提交的 sha> --result PASS|FAIL` 的输出。未通过则在原分支就地修代码、重跑 repo 检查，再送 `review diff`。
-  2. **review 证据和 PR**：`review diff` 通过后采集证据、开出 PR，并在 `ghc lint <PR>` 与 `ghc ev publish <PR>` 通过后送审。reviewer 不重复确认 `ghc` 已经检查过的东西，重点看证据本身能否看出来解决了 issue，并把结论 comment 发到 PR thread。未通过则在原分支补采证据或修正 PR 正文，按 `writing-pr` 发重试评论，再送 `review 证据和 PR`；要改代码时先回到 `review diff`，新提交通过后在它上面重采证据。
+- **实现方不审自己的代码与 PR。** 每个 PR 只做一轮只读 review，由不继承本会话上下文的 reviewer 按 `review-pr` skill 执行，review 期间不向该分支推送。review 在切片整合、repo 检查通过并提交、PR 已开出、证据按分层齐全（`ghc lint <PR>` 与有记录时的 `ghc ev publish` 通过）之后进行；reviewer 不重复确认 `ghc` 已经检查过的东西，一次列出全部发现。结论 comment 发在 PR thread，第一行是 `ghc gate header <PR> --result PASS|FAIL` 的输出。未通过则在原分支一次改完、重跑 repo 检查、按需重采过期证据，再送同一轮 review 的增量复核。
 - **核实发现。** 会话逐条核实 reviewer 提出的发现；驳回或改判的写明判定、依据和核实所用的命令与输出。
-- **通过即合并，永不重审、永不重采。** 一旦 `review 证据和 PR` 通过（`PASS`），该 PR **直接合并到中转分支**（树内为缓冲分支 `tree/*`，独立 issue 为默认分支），**必定不再 review，也不要再重新采集证据**。别的 issue 合入或设计修正提交使 base 前进时，无冲突的直接合并；有冲突的用 merge 把 base 合入分支（不 rebase）、解完冲突后**直接合并，必定不再 review，也不要再重新采集证据**。`PASS` 之后分支上只加这种合并提交。`ghc merge-ready <PR> --issue <issue> --head <HEAD>` 退出码 0 后执行 `gh pr merge <N> --merge --match-head-commit <HEAD>`，合并后用实时状态确认；`ghc merge-ready` 核对的是：`PASS` 所在提交有 `review diff` 的 `PASS` 与证据，之后只新增了合并 base 的提交，checks 在要合并的 HEAD 上通过。
-- **后续问题必须开新的 issue 和 PR。** `review 证据和 PR` 通过之后再发生什么问题（包括解冲突、合入中转分支或后续组合时暴露的缺陷、遗漏或回归），必须用 `writing-issue` skill 开新的 issue 和新的 PR（树内的作为 sub-issue 挂到树下，加入总体验收 issue 的组合对象与依赖），绝不在已通过的 PR 上重采或重审。单个 issue 的证据不证明组合，组合由总体验收负责。
+- **补丁不变即有效，补丁一变就增量复核。** review 结论与它所审的补丁绑定，由 `ghc gate list` 与 `ghc merge-ready` 判定：结论要求 base 与当前一致；`PASS` 还按补丁判定，补丁不变时一直有效，哪怕为追平 base 的 rebase 让 HEAD 变了；改动本 PR 的 hunk 使补丁变化，`PASS` 失效，在新补丁上增量复核。`FAIL` 另在 issue 正文修订后失效。
+- **只经 `ghc land` 以 squash 合并。** 合并统一执行 `ghc land <PR> --issue <issue>`：它 fetch、必要时把分支 rebase 到最新 base；干净 rebase 让补丁变了，它推送后退出 1，等增量复核通过后再 land；补丁不变则等待新 HEAD 的检查、复验合并前提，然后 squash 合并、删除分支并读回状态。不用 `gh pr merge`，不用 merge commit 或 rebase 合并。
+- **冲突在分支上用 rebase 解决。** 分支落后于 base 时由 `ghc land` rebase；rebase 冲突时它 abort、退出 1 并列出冲突文件，会话在 PR 分支上自行 rebase、解决并提交，补丁变化就取得增量复核，再重新 `ghc land`。不把 base 合入分支。
+- **后续问题必须开新的 issue 和 PR。** 取得 `PASS` 之后发生的任何问题（包括合入 base 分支或后续组合验收时暴露的缺陷、遗漏与回归），必须用 `writing-issue` skill 开新的 issue 和新的 PR（树内的作为 sub-issue 挂到树下，加入总体验收 issue 的组合对象与依赖），绝不在已通过的 PR 上重采或重审。单个 issue 的证据不证明组合，组合由总体验收负责。
 
 ### 树
 
 ```mermaid
 stateDiagram-v2
     [*] --> Buffer: 每个涉及的 repo 从默认分支建缓冲分支
-    Buffer --> Buffer: 就绪的 child 并行交付，各自的 PR 合入缓冲分支
+    Buffer --> Buffer: 就绪的 child 并行交付，各自的 PR 经 ghc land 合入缓冲分支
     Buffer --> Integration: 全部 child 已合入
     Integration --> Buffer: 发现组合缺陷，修复 issue 挂到树下
-    Integration --> TreePr: 总体验收证据包齐全，采于缓冲分支当前提交
-    TreePr --> [*]: tree PR 合入默认分支，树内 issue 全部关闭
+    Integration --> TreePr: 总体验收证据包齐全，采于缓冲分支当前补丁
+    TreePr --> [*]: ghc land 树根 --tree，树内 issue 全部关闭
 ```
 
-- 缓冲分支名由 `ghc` 决定：`tree/<树根 owner>-<树根 repo>-<树根编号>`。child PR 只合入缓冲分支；GitHub 不为合入非默认分支的 PR 关闭 issue，child 到 tree PR 合并时才关闭。
+- 缓冲分支名由 `ghc` 决定：`tree/<树根 owner>-<树根 repo>-<树根编号>`。child PR 只合入缓冲分支；GitHub 不为合入非默认分支的 PR 关闭 issue，child 到 tree PR 合并时才关闭。child PR 与 tree PR 都只经 `ghc land` 合并。
 - 全部 child 合入、且没有尚未进入缓冲分支的设计修正之后，在各 repo 缓冲分支的当前提交上采集总体验收（`ghc ev run <总体验收 issue> --checkout <各 repo 检出>`），`ghc ev publish <总体验收 issue>` 发布。不复用 child 的证据。
+- 集成证据与缓冲分支的补丁绑定：缓冲分支的补丁不变时有效；新 child 合入或修复提交改变了补丁，证据失效，在新的缓冲分支提交上重采。
 - 发现组合缺陷时用 `writing-issue` 开修复 issue 挂到树下，加入总体验收 issue 的组合对象与依赖；它交付后，在新的缓冲分支提交上重采总体验收。
-- 证据包齐全后每个涉及的 repo 开一个 tree PR（`writing-pr`「tree PR」）。`ghc merge-ready <树根> --tree` 通过后合并：先合并树根之外的 repo，最后合并树根所在 repo 的那个。合并后确认树内 issue 全部关闭。
+- 证据包齐全后每个涉及的 repo 开一个 tree PR（`writing-pr`「tree PR」）。`ghc land <树根> --tree` 先落盘树根之外 repo 的 tree PR，最后落盘树根所在 repo 的那个，并读回树内 issue 全部关闭。
 
 独立 issue 合并后确认它经 closing link 关闭。
 
@@ -122,13 +127,13 @@ stateDiagram-v2
 2. 读拥有该语义的文档、类型和例子全文；事实不明时经真实入口取证。
 3. 裁定。不为迁就已有实现而放宽契约。
 4. 写回源头：设计文档里直接替换对应章节并核对关联文档；在树根（没有树时是当前 issue）发设计修正 comment，写法按 `writing-complex-issues` 的 [comment-layers.md](../writing-complex-issues/references/comment-layers.md)；受影响的活跃 issue 同步替换正文里的预期结果、范围和契约引用。
-5. 设计修正的提交进入 base（树内是缓冲分支）。尚未通过 `review 证据和 PR` 的进行中分支整合它之后继续，依赖旧契约的未决 review 作废；已经通过 `review 证据和 PR` 的 PR 照常直接合入中转分支，受设计修正影响的部分必须另开新的 issue 和 PR。
+5. 设计修正的提交进入 base（树内是缓冲分支）。尚未取得 `PASS` 的进行中分支整合它之后继续；依赖旧契约的 review 结论随补丁变化失效，按新补丁重审。已经取得 `PASS` 的 PR，补丁不变就照常经 `ghc land` 合入它的 base 分支；受设计修正影响而必须改动的部分另开新的 issue 和 PR。
 
 ## 记录与恢复
 
 - 权威状态在 GitHub 和 git 上：issue 与 PR 的状态、issue 与 PR thread 里的 review 结论、重试评论、设计修正 comment、证据包、各分支的提交。每次状态转移先落到这些地方。
 - 本地计划是会话的索引与意图，不代替上述权威。内容：每个 issue 的状态、分支与 PR、证据计划、在跑的切片与 reviewer、尚未进入 base 的设计修正、下一步。
-- review 结论是否仍有效由 `ghc gate list <PR>` 与 `ghc merge-ready` 判定：未通过（`FAIL`）时 HEAD、base 分支、issue 正文修订任一改变即失效；一旦 `review 证据和 PR` 给出 `PASS`，结论即锁定有效，后续为合入中转分支解冲突产生的 HEAD 变动和 issue 正文修订都不再使其失效；`review diff` 的结论只对它审的那个提交有效。
+- review 结论是否仍有效由 `ghc gate list <PR>` 与 `ghc merge-ready` 判定：结论要求 base 与当前一致；`PASS` 还按补丁判定，HEAD 变了而补丁不变仍有效，补丁变了即失效并需增量复核；`FAIL` 另在 issue 正文修订后失效。证据记录同样按补丁判定，由 `ghc ev check` 计算。
 - 上下文压缩或换会话后，从实时状态重新分类，以权威来源修正本地计划后继续。接手别的会话留下的分支前，先确认那个会话已经结束；推送被拒时不强推。
 
 ## 不为可查的事停下
