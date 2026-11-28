@@ -18,7 +18,7 @@ app 归 km 还是归 IaC，按 `personal-infra-routing` 规则的归属判据定
 |---|---|---|
 | `homelab` | homelab-app1 / VM 110，`http://homelab-app1.mouriya.lan:9120` | Server `Local` 是同机 Periphery；其余 Server 以 `ls servers` 为准 |
 | `trading` | trading-agent / VM 130，`http://trading-agent.mouriya.lan:9120` | 独立 Core，workload 见 `homelab-trading` skill |
-| `nekoringo` | nekoringo1 `218.33.108.254`，由 `mouriya-devops/nekoringo-iac` 的 `apps/komodo` 部署 | 专用主机，不属 homelab；Server `nekoringo1`（Core 与边缘服务）、`nekoringo2`（生产与测试 workload） |
+| `nekoringo` | nekoringo1 `218.33.108.254`，由 `mouriya-devops/nekoringo-iac` 的 `apps/komodo` 部署 | 专用主机，不属 homelab；Server `nekoringo1`（Core 与边缘服务） |
 
 - 上表是主要 Core；本机登记的全部连接以本 skill 目录下 `bin/list.sh` 的输出为准（`bash <skill-dir>/bin/list.sh`，`<skill-dir>` 是本 SKILL.md 所在目录）。每条命令以 `km -p <core>` 开头，没有"当前 Core"，也没有默认 Core。`km` 是本 skill 的 `bin/km`：它按连接清单经 `bao-exec` 从 OpenBao 取该 Core 的 API key，只在这一条命令的环境里有效；清单与安装见 `references/endpoints.md`。
 - Server、Stack 的名字和 ID 只在本 Core 内有效。先列出再操作：`km -p "$core" ls servers`、`km -p "$core" ls stacks -a -f json`。
