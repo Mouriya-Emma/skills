@@ -12,7 +12,7 @@ name: PR Check
 on:
   pull_request:
     branches: [main, 'tree/**']
-  merge_group
+  merge_group:
 
 permissions:
   contents: read
