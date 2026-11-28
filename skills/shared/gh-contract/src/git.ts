@@ -62,3 +62,40 @@ export async function defaultBranchRef(path: string): Promise<string> {
   }
   throw new EnvError(`${path}: cannot determine origin default branch`);
 }
+
+export async function fetchRefs(path: string, remote: string, refs: readonly string[]): Promise<void> {
+  await runOk(["git", "-C", path, "fetch", "--no-tags", remote, ...refs]);
+}
+
+export async function currentBranch(path: string): Promise<string | null> {
+  const r = await run(["git", "-C", path, "symbolic-ref", "--quiet", "--short", "HEAD"]);
+  return r.code === 0 ? r.stdout.trim() : null;
+}
+
+export async function checkoutDetached(path: string, rev: string): Promise<void> {
+  await runOk(["git", "-C", path, "checkout", "--detach", rev]);
+}
+
+export async function checkoutBranch(path: string, branch: string): Promise<void> {
+  await runOk(["git", "-C", path, "checkout", branch]);
+}
+
+export async function localAncestor(path: string, ancestor: string, descendant: string): Promise<boolean> {
+  const r = await run(["git", "-C", path, "merge-base", "--is-ancestor", ancestor, descendant]);
+  if (r.code === 0) return true;
+  if (r.code === 1) return false;
+  throw new EnvError(`git merge-base: ${r.stderr.trim()}`);
+}
+
+export async function unmergedFiles(path: string): Promise<readonly string[]> {
+  const out = await runOk(["git", "-C", path, "diff", "--name-only", "--diff-filter=U"]);
+  return out.split("\n").filter((l) => l !== "");
+}
+
+export async function pushWithLease(path: string, headRef: string, expected: string): Promise<void> {
+  await runOk(["git", "-C", path, "push", `--force-with-lease=refs/heads/${headRef}:${expected}`, "origin", `HEAD:refs/heads/${headRef}`]);
+}
+
+export async function cloneRepo(repo: Repo, dir: string): Promise<void> {
+  await runOk(["gh", "repo", "clone", `${repo.owner}/${repo.name}`, dir, "--", "--no-tags"]);
+}

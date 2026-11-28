@@ -7,10 +7,12 @@ import { getIssue } from "../github.ts";
 import { type Checkout, checkoutAt, headOf, isClean } from "../git.ts";
 import { type IssueBody, parseIssue, type TypedOutcome } from "../issue.ts";
 import { type Face, IMAGE_TYPES, isFace, isKind, KINDS, type Kind } from "../model.ts";
+import { localPatchId, type PatchId } from "../patch.ts";
 import { UsageError } from "../proc.ts";
 import { type Ref, type Repo, refKey, repoKey } from "../ref.ts";
 import { defaultStep, isStep, requirementFor, type Step } from "../requirements.ts";
 import { uploadAttachment } from "../upload.ts";
+import { baseRefFor } from "./publish.ts";
 import { type Attachment, type CheckoutState, type Completion, type EvidenceRecord, newRecordDir, saveRecord } from "./record.ts";
 
 export type CaptureOptions = {
@@ -30,9 +32,11 @@ type Target = {
   readonly kind: Kind;
   readonly step: Step;
   readonly shows: string;
+  /** The tree root whose buffer branch is the target base; null for an independent or integration issue. */
+  readonly root: Ref | null;
 };
 
-const stepsText = (face: Face, kind: Kind): string => requirementFor(face, kind).steps.map((s) => s.step).join(" → ");
+const stepsText = (face: Face): string => requirementFor(face).steps.map((s) => s.step).join(" → ");
 
 async function resolveTarget(o: CaptureOptions): Promise<Target> {
   const issueData = await getIssue(o.issue);
@@ -71,17 +75,18 @@ async function resolveTarget(o: CaptureOptions): Promise<Target> {
   }
   let step: Step;
   if (o.step === null) {
-    const only = defaultStep(face, kind);
-    if (only === null) throw new UsageError(`${face} 面的 [${kind}] 结果需要指定 --step：${stepsText(face, kind)}`);
+    const only = defaultStep(face);
+    if (only === null) throw new UsageError(`${face} 面的 [${kind}] 结果需要指定 --step：${stepsText(face)}`);
     step = only;
   } else {
     if (!isStep(o.step)) throw new UsageError(`未知的 --step ${o.step}`);
     step = o.step;
   }
-  if (!requirementFor(face, kind).steps.some((s) => s.step === step)) {
-    throw new UsageError(`${face} 面的 [${kind}] 结果不需要步骤 ${step}；需要：${stepsText(face, kind)}`);
+  if (!requirementFor(face).steps.some((s) => s.step === step)) {
+    throw new UsageError(`${face} 面的 [${kind}] 结果不需要步骤 ${step}；需要：${stepsText(face)}`);
   }
-  return { body, outcomes, face, kind, step, shows };
+  const root = body.kind === "integration" ? null : issueData.parent;
+  return { body, outcomes, face, kind, step, shows, root };
 }
 
 type Opened = { readonly co: Checkout; readonly head: string };
@@ -100,13 +105,22 @@ async function openCheckouts(paths: readonly string[]): Promise<Opened[]> {
   return out;
 }
 
-async function stateAfter(opened: readonly Opened[]): Promise<CheckoutState[]> {
+async function checkoutPatch(path: string, root: Ref | null): Promise<PatchId | null> {
+  try {
+    return await localPatchId(path, await baseRefFor(path, root));
+  } catch {
+    return null;
+  }
+}
+
+async function stateAfter(opened: readonly Opened[], root: Ref | null): Promise<CheckoutState[]> {
   const out: CheckoutState[] = [];
   for (const { co, head } of opened) {
     out.push({
       repo: repoKey(co.repo),
       path: co.path,
       head,
+      patchId: await checkoutPatch(co.path, root),
       cleanBefore: true,
       cleanAfter: (await isClean(co.path)) && (await headOf(co.path)) === head,
     });
@@ -222,7 +236,7 @@ export async function evRun(o: RunOptions): Promise<number> {
     capture: { kind: "run", command, shell, cwd: process.cwd(), completion, stdoutLines, stderrLines },
     startedAt,
     endedAt,
-    checkouts: await stateAfter(cos),
+    checkouts: await stateAfter(cos, t.root),
     attachments,
   };
   await saveRecord(dir, record);
@@ -259,7 +273,7 @@ export async function evAttach(o: AttachOptions): Promise<void> {
     capture: { kind: "attach" },
     startedAt,
     endedAt: new Date().toISOString(),
-    checkouts: await stateAfter(cos),
+    checkouts: await stateAfter(cos, t.root),
     attachments,
   };
   await saveRecord(dir, record);

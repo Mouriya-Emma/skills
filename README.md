@@ -14,7 +14,7 @@
 | `harness/claude/CLAUDE.md` | Claude Code 的全局 memory |
 | `harness/agy/plugin.json` | AGY 插件 `agent-skills` 的元数据 |
 | `bin/skills-sync` | 生成器与链接器（需要 `bun`） |
-| `test/` | `bin/skills-sync` 与本仓库清单、规则的校验，`bun test ./test` 运行；`.github/workflows/check.yml` 在每次推送 `main` 时运行它 |
+| `test/` | `bin/skills-sync` 与本仓库清单、规则的校验，`bun test ./test` 运行；`.github/workflows/pr.yml` 在 PR（`main` 与 `tree/**`）、合并队列和推送 `main` 时运行它，检查名为 `test` |
 
 清单里的名字依次从 `skills/<harness>/`、`skills/shared/`、`~/.agents/skills/` 解析；第三方 skill 由 `npx skills` 安装在 `~/.agents/skills/`，写进清单后才暴露。
 

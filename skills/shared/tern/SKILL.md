@@ -16,7 +16,7 @@ description: Raft agent 在 tern 里给 omp 派活后需要 omp 停下时被自�
 2. **只操作自己创建的对象：**
    普通配置下 `tern ls`、`tern inspect`、`tern send`、`tern capture`、`tern wait` 连的就是用户正在使用的 session daemon，能看到用户全部会话。只对本次用 `tern new session|tab` / `tern split` 建出的 session、tab、block 执行 `send`、`close`、`kill`，并记录 `--json` 返回的精确 ID；用户原有的 pane 一律不碰。`tern new session` 建出的会话在用户窗口里是 `shown: false`，不会切走用户当前显示的会话。
 3. **采证前先冻结代码 HEAD：**
-   走 issue / PR 交付时，必须在代码提交且 `review diff` 通过（`PASS`）之后才启动 Tern 采集正式证据（见 `delivering-issues` skill）。禁止边派 reviewer 边手搓 Tern 采证，避免 review 修代码改变 HEAD SHA 导致整轮截图作废重采。
+   走 issue / PR 交付时，实现提交之后才启动 Tern 采集正式证据，且只为经 Tern 界面或会话观察到的外部面结果采集，`gui` 的截图与在 Tern 里运行的会话是典型情形；不是把 `gui`、`iac`、`agent-config` 三个面都交给 Tern：`iac` 是 OpenTofu 的 preview → apply → readback，`agent-config` 是加载本分支配置的 agent 会话（见 `gh-contract` skill「证据的规矩」与 `delivering-issues` skill）。采证前先提交实现，采证后开 PR 并按 `writing-pr` 发布；不要边改代码边手搓 Tern 采证，避免 HEAD 变化使整轮截图作废重采。
 4. **用完立即退出并清理：**
    无头测试结束时执行 `tern ctl --control "$S" quit`，并等待 `tern serve` 进程退出；本次在 daemon 中建的会话用 `tern kill session <NAME>` 关闭，单个 block 用 `tern close <BLOCK>`；用 `tern plugin link` 接入的待测插件用 `tern plugin unlink <ID>` 撤下。不遗留后台 `tern serve`、多余会话或插件链接。
 

@@ -1,17 +1,22 @@
-name: check
+name: pr
 
 on:
+  pull_request:
+    branches: [main, 'tree/**']
+  merge_group:
   push:
     branches: [main]
-  pull_request:
 
 permissions:
   contents: read
 
 jobs:
-  skills-sync:
+  test:
+    name: test
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@main
+        with:
+          persist-credentials: false
       - uses: oven-sh/setup-bun@main
       - run: bun test ./test
